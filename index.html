@@ -1,0 +1,2470 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CodeType · 编程代码打字练习</title>
+
+<!-- ============================================================
+     CodeType · 编程代码打字练习（单文件纯前端版）
+     ------------------------------------------------------------
+     结构说明（方便你二次修改）：
+       1. CSS  —— 暗色编辑器风格主题
+       2. HTML —— 顶部工具栏 / 数据面板 / 代码展示区 / 输入区 / 历史记录
+       3. JS   —— ① 题库 BANK（可自由增删）
+                 ② 语法高亮 tokenize()
+                 ③ 逐字对齐渲染引擎（保证输入区与参考代码逐字符对齐）
+                 ④ 打字状态机（正确 / 错误 / 退格 / 补全判定）
+                 ⑤ 数据统计（WPM / CPM / 正确率 / 耗时）
+                 ⑥ localStorage 历史记录
+     ============================================================ -->
+
+<style>
+/* ============================================================
+   1. 主题变量：想换配色只改这里
+   ============================================================ */
+:root{
+  --bg:            #0e1116;   /* 页面底色 */
+  --bg-soft:       #141922;   /* 卡片底色 */
+  --bg-input:      #0b0e13;   /* 输入区底色 */
+  --line:          #232a36;   /* 边框线 */
+  --line-soft:     #1b222c;
+  --fg:            #d6deeb;   /* 主要文字 */
+  --fg-dim:        #7b8794;   /* 次要文字 */
+  --fg-faint:      #4a5463;   /* 更弱的文字 / 未输入代码 */
+  --green:         #4ade80;   /* 正确 */
+  --red:           #f87171;   /* 错误 */
+  --amber:         #fbbf24;   /* 强调 / 光标 */
+  --blue:          #61afef;   /* 关键字 */
+  --purple:        #c678dd;   /* 注释 */
+  --cyan:          #56b6c2;   /* 字符串 */
+  --orange:        #d19a66;   /* 数字 / 属性值 */
+  --pink:          #e06c75;   /* 标签名 */
+  --code-size:     16px;      /* 代码字号（改这里会同步影响输入区对齐） */
+  --code-line:     28px;      /* 代码行高 */
+}
+
+/* ---------- 基础重置 ---------- */
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--fg);
+  font-family:Consolas,"Cascadia Mono","JetBrains Mono","Courier New",Menlo,monospace;
+  font-size:14px;
+  -webkit-font-smoothing:antialiased;
+}
+/* 交互组件统一字体（输入类控件不会自动继承字体） */
+button,input,select,textarea{ font-family:inherit; font-size:inherit; color:inherit; }
+::-webkit-scrollbar{ width:10px; height:10px; }
+::-webkit-scrollbar-thumb{ background:#2b3440; border-radius:6px; }
+::-webkit-scrollbar-thumb:hover{ background:#3a4553; }
+::-webkit-scrollbar-track{ background:transparent; }
+
+/* ============================================================
+   页面骨架
+   ============================================================ */
+.app{
+  max-width:1180px;
+  margin:0 auto;
+  padding:20px 20px 48px;
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+}
+
+/* ---------- 顶部栏：标题 + 语言切换 ---------- */
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  flex-wrap:wrap;
+}
+.brand{ display:flex; align-items:center; gap:10px; }
+.brand .dot{
+  width:11px; height:11px; border-radius:50%;
+  background:var(--green);
+  box-shadow:0 0 12px rgba(74,222,128,.85);
+}
+.brand h1{ margin:0; font-size:17px; font-weight:700; letter-spacing:.5px; }
+.brand h1 span{ color:var(--fg-dim); font-weight:400; font-size:12px; margin-left:8px; }
+
+.tabs{ display:flex; gap:8px; flex-wrap:wrap; }
+.tab{
+  background:var(--bg-soft);
+  border:1px solid var(--line);
+  color:var(--fg-dim);
+  padding:7px 14px;
+  border-radius:8px;
+  cursor:pointer;
+  transition:.15s;
+  font-size:13px;
+}
+.tab:hover{ color:var(--fg); border-color:#33405a; }
+.tab.active{
+  color:#0e1116;
+  background:var(--blue);
+  border-color:var(--blue);
+  font-weight:700;
+}
+.tab .cnt{ opacity:.7; font-size:11px; margin-left:4px; }
+
+/* ---------- 数据面板 ---------- */
+.stats{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(104px,1fr));
+  gap:10px;
+  background:var(--bg-soft);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:12px 14px;
+}
+.stat{ display:flex; flex-direction:column; gap:3px; min-width:0; }
+.stat .k{ font-size:11px; color:var(--fg-dim); letter-spacing:.5px; }
+.stat .v{ font-size:19px; font-weight:700; color:var(--fg); line-height:1.1; }
+.stat .v small{ font-size:11px; font-weight:400; color:var(--fg-dim); margin-left:2px; }
+.stat.v-green .v{ color:var(--green); }
+.stat.v-red   .v{ color:var(--red); }
+.stat.v-blue  .v{ color:var(--blue); }
+.stat.v-amber .v{ color:var(--amber); }
+
+/* ---------- 工具栏 ---------- */
+.toolbar{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  background:var(--bg-soft);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:10px 12px;
+}
+.btn{
+  background:#1b2430;
+  border:1px solid #2b3648;
+  color:var(--fg);
+  padding:8px 15px;
+  border-radius:8px;
+  cursor:pointer;
+  transition:.15s;
+  font-size:13px;
+}
+.btn:hover:not(:disabled){ background:#243044; border-color:#3a4a63; }
+.btn:active:not(:disabled){ transform:translateY(1px); }
+.btn:disabled{ opacity:.4; cursor:not-allowed; }
+.btn.primary{ background:var(--green); border-color:var(--green); color:#0b1a10; font-weight:700; }
+.btn.primary:hover:not(:disabled){ background:#5eea92; border-color:#5eea92; }
+.btn.ghost{ background:transparent; }
+.spacer{ flex:1 1 auto; }
+
+/* 开关 */
+.switch{
+  display:inline-flex; align-items:center; gap:8px;
+  font-size:12px; color:var(--fg-dim); cursor:pointer; user-select:none;
+}
+.switch input{ display:none; }
+.switch .track{
+  width:36px; height:19px; border-radius:19px;
+  background:#2a3542; position:relative; transition:.18s; flex:0 0 auto;
+}
+.switch .track::after{
+  content:""; position:absolute; top:2px; left:2px;
+  width:15px; height:15px; border-radius:50%;
+  background:#8b98a8; transition:.18s;
+}
+.switch input:checked + .track{ background:rgba(97,175,239,.35); }
+.switch input:checked + .track::after{ left:19px; background:var(--blue); }
+
+/* ---------- 代码面板通用外壳 ---------- */
+.panel{
+  background:var(--bg-soft);
+  border:1px solid var(--line);
+  border-radius:12px;
+  overflow:hidden;
+}
+.panel-head{
+  display:flex; align-items:center; gap:10px;
+  padding:8px 12px;
+  border-bottom:1px solid var(--line-soft);
+  background:#171d27;
+  font-size:12px; color:var(--fg-dim);
+}
+.panel-head .badge{
+  padding:2px 8px; border-radius:5px; font-size:11px;
+  background:rgba(97,175,239,.14); color:var(--blue);
+  border:1px solid rgba(97,175,239,.3);
+}
+/* 用途标签：这条片段是干什么用的（练的时候知道自己在打什么，更沉浸） */
+.panel-head .use-badge{
+  display:none; padding:2px 8px; border-radius:5px; font-size:11px;
+  background:rgba(198,120,221,.13); color:#d9a6ea;
+  border:1px solid rgba(198,120,221,.3);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  max-width:340px;
+}
+.panel-head .use-badge.show{ display:inline-block; }
+.panel-head .probe{
+  margin-left:auto; font-size:12px; color:var(--fg-dim);
+  display:flex; align-items:center; gap:8px;
+}
+.panel-head .probe .plabel{ color:#5d6879; }
+/* 期望字符徽标：显示"下一个必须打的字符"（空格/换行会用符号表示） */
+.panel-head .probe .pchar{
+  color:var(--amber); background:rgba(251,191,36,.12);
+  border:1px solid rgba(251,191,36,.28);
+  border-radius:5px; padding:0 8px; font-weight:700;
+  display:inline-block; min-width:44px; text-align:center;
+  font-size:14px; white-space:pre;
+}
+.panel-head .probe .pnote{ font-size:11px; color:#5d6879; }
+/* 不一致位置计数徽标 */
+#mis-badge{
+  display:none; padding:2px 8px; border-radius:5px; font-size:11px;
+  color:#ffd9d9; background:rgba(248,113,113,.16);
+  border:1px solid rgba(248,113,113,.42);
+}
+#mis-badge.show{ display:inline-block; }
+/* 严格逐字符提示文字 */
+.strict-hint{ font-size:11px; color:#5d6879; }
+.strict-hint b{ color:var(--green); }
+
+/* ============================================================
+   参考代码 + 输入区（核心对齐区域）
+   ------------------------------------------------------------
+   两个 .cbody 的字体、字号、行高、padding、letter-spacing 完全一致，
+   区别只在颜色，因此参考代码与用户输入可以做到逐字符重合。
+   每行使用 white-space:pre，靠 letter-spacing 拉伸到面板整宽，
+   这样就不依赖浏览器换行策略，永远不会错位。
+   ============================================================ */
+.codewrap{
+  display:flex;
+  flex-direction:column;
+  background:var(--bg);
+}
+/* 外层容器（#code-lines / #input-lines）：只负责字体与定位，高度由内部行撑开。
+   注意不能给它 height/overflow:hidden —— 那样会把内部每一行都裁掉一截并造成两层错位。
+   左右内边距一律交给内层行，避免嵌套后叠加。 */
+.cbody{
+  position:relative;
+  padding:0;
+  font-size:var(--code-size);
+  line-height:var(--code-line);
+  letter-spacing:0px;              /* 由 JS 写全局统一字距到每一行的 .ctext 上 */
+}
+/* 内层行容器：固定行高 + 裁切，保证字符不会改变行高，两层严格对齐 */
+.cbody > .cbody{
+  height:var(--code-line);
+  overflow:hidden;
+  box-sizing:content-box;          /* 边框不占行高，避免被裁切 */
+  padding:0 12px;
+  font-size:var(--code-size);
+  line-height:var(--code-line);
+}
+/* 输入层：外层不设内边距（padding 一律由内层行提供，避免嵌套叠加） */
+.cbody.input{ border:0; }
+#input-lines{ border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.cbody.code{ color:var(--fg-faint); }
+.cbody.code .ln{
+  position:absolute; left:0; top:0;
+  width:44px; text-align:right; padding-right:10px;
+  color:#333d4b; user-select:none;
+}
+.cbody .ctext{ position:relative; }
+
+/* ------------------------------------------------------------
+   逐字符精确布局模式（.ctext.posmode）
+   ------------------------------------------------------------
+   含中文的题目会走这条路径：每个字符渲染成一个独立 span，
+   宽度按**实测推进宽度**写死，字距用 margin-right 补足。
+   注意：width 对 display:inline 完全无效，所以这里必须转成 inline-block，
+   否则宽字符会被压扁、两层位置全乱（这个坑踩过一次）。
+   ------------------------------------------------------------ */
+.cbody .ctext.posmode > span{
+  display:inline-block;
+  text-align:center;
+  letter-spacing:0;              /* 字距由 margin-right 精确控制，不再叠加 letter-spacing */
+}
+.cbody .ctext.posmode > span.ln{
+  display:block;                 /* 行号保持原样（绝对定位） */
+}
+
+/* ------------------------------------------------------------
+   空格的"可视标记"（.gd / .sp）
+   ------------------------------------------------------------
+   为什么要专门处理：
+     代码打字里空格和标点一样是必须打对的字符，但纯空格肉眼看不见，
+     很容易和「.」「,」「·」混淆。这里给空格一个专属标记，规则是：
+
+       参考代码层 .gd —— 空心方块  □   （标记符号本身）
+       用户输入层 .sp —— 实心圆点  ●   （表示"这个位置是个空格"）
+
+     和真正的小数点的区别是刻意做出来的：
+       · 小数点  .  是字形本身的墨点，压在**基线**上，颜色 = 参考层的标点色
+       · 空格标记是居**行中**的纯几何图形，和字形无关
+     所以「形状不同（方 vs 圆）+ 位置不同（行中 vs 基线）+ 颜色不同」三重区分。
+
+   为什么用 inline-block 且宽度必须显式控制：
+     如果把空格渲染成普通字符放进两个 span 之间，它会在两个 span 处各多算一次
+     letter-spacing，导致输入层相对参考层逐字符累积错位（实测每个空格偏 1.8px）。
+     所以标记盒子的宽度由 JS 按**实测字宽**写入（纯 ASCII 题目就是 1ch，
+     含中文的题目里空格仍是半宽），保证两层的步进完全一致。
+   ------------------------------------------------------------ */
+.cbody .gd,
+.cbody .sp{
+  position:relative;
+  display:inline-block;
+  width:1ch;                     /* 默认一个半角宽；逐字符布局时会用内联 width 覆盖 */
+  height:1em;
+  overflow:hidden;               /* 里面只有 CSS 画的图形，不放文字 */
+  letter-spacing:0;              /* 标记自身不加字距，步进由外层统一控制 */
+  text-align:center;
+  line-height:1;
+  vertical-align:-0.18em;        /* 微调，使盒中心与字符中线对齐 */
+}
+
+/* 参考代码层：空心方块，低调的蓝灰，一眼能看出"这里有个空格" */
+.cbody .gd::before{
+  content:"";
+  position:absolute; left:50%; top:50%;
+  width:5px; height:5px;
+  transform:translate(-50%,-50%);
+  border:1px solid #7d8b9e;
+  border-radius:1px;
+  background:transparent;
+  box-sizing:border-box;
+}
+
+/* 待输入的空格（输入层）：空心圆环 + 淡淡的底色块，和参考层明显不同 */
+.cbody .sp::before{
+  content:"";
+  position:absolute; left:50%; top:50%;
+  width:5px; height:5px;
+  transform:translate(-50%,-50%);
+  border:1px solid currentColor;
+  border-radius:50%;
+  background:transparent;
+  box-sizing:border-box;
+}
+.cbody .sp::after{
+  content:"";
+  position:absolute; left:0; right:0; top:50%;
+  height:1.15em;
+  transform:translateY(-50%);
+  background:rgba(255,255,255,.048);
+  border-radius:2px;
+  z-index:-1;
+}
+
+/* 已打对 / 打错的空格：颜色跟着判定走，标记形状不变，保证"对错一眼可见" */
+.cbody.input .ok.sp::before { border-color:var(--green); }
+.cbody.input .ok.sp::after  { background:rgba(74,222,128,.16); }
+.cbody.input .bad.sp::after { background:var(--red); }
+.cbody.input .bad.sp::before{ border-color:#0e1116; }
+
+/* 关闭「空格标记」后：只用留白（输入层保留一个极淡的底色块，方便看出空格打没打） */
+body.no-space-mark .cbody .gd::before,
+body.no-space-mark .cbody .sp::before{ display:none; }
+body.no-space-mark .cbody.input .sp::after{ background:transparent; }
+/* 留白模式下，图例里的方块/圆环说明也一起隐藏，避免误导 */
+body.no-space-mark .legend .space-only{ display:none; }
+.cbody .space-off{
+  position:relative; display:inline-block;
+  width:1ch; height:1em; overflow:hidden;
+  letter-spacing:0; vertical-align:-0.18em;
+}
+.cbody .space-off::after{
+  content:"";
+  position:absolute; left:0; right:0; top:50%;
+  height:1.15em; transform:translateY(-50%);
+  background:rgba(255,255,255,.04);
+  border-radius:2px;
+}
+
+/* ============================================================
+   标记图例（写在代码面板下方，见页面 HTML 里的 .legend）
+   ============================================================ */
+.legend{
+  display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+  padding:8px 12px;
+  border-top:1px solid var(--line-soft);
+  background:#141a23;
+  font-size:11px; color:#7b8794;
+}
+.legend .item{ display:inline-flex; align-items:center; gap:6px; }
+.legend .demo{
+  display:inline-block; position:relative;
+  width:12px; height:14px; vertical-align:middle;
+}
+/* 图例里的空白标记：和正文里用的是同一套画法 */
+.legend .demo.gd::before{
+  content:""; position:absolute; left:50%; top:50%;
+  width:5px; height:5px; transform:translate(-50%,-50%);
+  border:1px solid #7d8b9e; border-radius:1px; box-sizing:border-box;
+}
+.legend .demo.sp::before{
+  content:""; position:absolute; left:50%; top:50%;
+  width:5px; height:5px; transform:translate(-50%,-50%);
+  border:1px solid #8b98a8; border-radius:50%; box-sizing:border-box;
+}
+.legend .demo.sp::after{
+  content:""; position:absolute; left:0; right:0; top:50%;
+  height:12px; transform:translateY(-50%);
+  background:rgba(255,255,255,.048); border-radius:2px;
+}
+.legend .demo.dot{ color:#95a2b3; font-size:16px; line-height:14px; text-align:center; }
+.legend .demo.cor{ color:var(--green); font-size:15px; line-height:14px; text-align:center; }
+.legend .demo.wrg{ color:#0e1116; background:var(--red); border-radius:2px; font-size:15px; line-height:14px; text-align:center; }
+.legend .demo.mis::before{
+  content:""; position:absolute; left:0; top:1px;
+  width:10px; height:10px; border:1.5px solid var(--red); border-radius:50%; box-sizing:border-box;
+}
+
+/* 有错未改时，整行给一条很淡的红边，提醒"这一行还有不一致的位置" */
+.cbody.input.hasMis{ box-shadow:inset 2px 0 0 rgba(248,113,113,.55); }
+
+/* 未修正的不一致位置：一个红色椭圆环套在错字符外面。
+   零宽度不参与字符流（非定位布局）或按槽位宽度绝对定位（逐字符布局），
+   两种布局下都必须与字符格对齐，否则看起来会"圈歪了"。 */
+.cbody.input .markMis{
+  position:relative; display:inline-block;
+  width:0; height:0; vertical-align:baseline;
+}
+.cbody.input .markMis::before{
+  content:"";
+  position:absolute; left:-3px; top:-1.1em;
+  width:14px; height:15px;
+  border:1.5px solid var(--red);
+  border-radius:50%;
+  box-sizing:border-box;
+  pointer-events:none;
+  animation:misPulse 1.15s ease-in-out infinite;
+}
+/* 逐字符布局（含中文的题目）下，光标与红圈改为绝对定位，不参与字符流。
+   红圈宽度由 JS 写成"该字符槽位宽"，让它正好套住那个字符。 */
+.cbody.input .caret.abs{
+  position:absolute; top:0;
+  margin:0; vertical-align:baseline;
+}
+.cbody.input .markMis.abs{
+  position:absolute; top:0; left:0;
+  width:0; height:0;
+}
+.cbody.input .markMis.abs::before{
+  left:50%; top:50%;
+  width:13px; height:15px;
+  transform:translate(-50%,-50%);
+}
+@keyframes misPulse{
+  0%,100%{ opacity:1; }
+  50%    { opacity:.35; }
+}
+
+/* 高亮配色（参考代码那层） */
+.tk-com{ color:var(--purple); font-style:italic; }
+.tk-str{ color:var(--cyan); }
+.tk-num{ color:var(--orange); }
+.tk-kw { color:var(--blue); }
+.tk-fn { color:#e5c07b; }
+.tk-tag{ color:var(--pink); }
+.tk-att{ color:var(--orange); }
+.tk-op { color:#8fa3bd; }
+.tk-pun{ color:#95a2b3; }
+
+/* 输入区：正确绿 / 错误红 / 光标 / 提示 */
+.cbody.input{
+  background:var(--bg-input);
+}
+.cbody.input .ok  { color:var(--green); }
+/* 错误位置显示"实际敲进去的字符"，用红底 + 白字，清晰可辨。
+   注意不要用 width:100% 去"填满槽位"：.ctext 是 inline 块容器，
+   百分比宽度会解析成整行宽度（实测 678px），会把后面的字符全挤歪。
+   这里只做裁切，宽度继续用内联的槽位宽。 */
+.cbody.input .bad{
+  color:#fff; background:var(--red);
+  border-radius:2px;
+}
+.cbody .ctext.posmode > span.bad{
+  overflow:hidden;
+}
+.cbody.input .caret{
+  display:inline-block; width:0; height:calc(var(--code-line) - 6px);
+  vertical-align:middle;
+  border-left:2px solid var(--amber);
+  margin:0 -1px;
+  animation:blink 1s steps(1,end) infinite;
+}
+@keyframes blink{ 0%,49%{opacity:1} 50%,100%{opacity:0} }
+/* 输入区里"还没输入到的字符"用极淡的前景色显示，形成提示 */
+.cbody.input .pending{ color:#39424f; }
+.cbody.input .ghost{
+  color:var(--amber); opacity:.45; text-decoration:underline;
+}
+
+/* 代码滚动容器 */
+.codescroll{
+  max-height:352px;
+  overflow-y:auto;
+  overflow-x:hidden;
+}
+
+/* 状态条 */
+.statusbar{
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  padding:8px 12px;
+  font-size:12px; color:var(--fg-dim);
+  border-top:1px solid var(--line-soft);
+  background:#171d27;
+}
+.statusbar .on{ color:var(--green); }
+.statusbar .off{ color:var(--amber); }
+/* 输入法组字提示：组字时显示蓝色，告诉用户"按键被输入法接管了，不是坏了" */
+.ime-flag{ font-size:11px; color:var(--blue); }
+.ime-flag.on-ime{
+  padding:1px 7px; border-radius:5px;
+  background:rgba(97,175,239,.16);
+  border:1px solid rgba(97,175,239,.42);
+}
+
+/* ============================================================
+   历史记录
+   ============================================================ */
+.history{ display:block; }
+.history summary{
+  cursor:pointer; padding:10px 12px; font-size:12px;
+  color:var(--fg-dim); list-style:none; user-select:none;
+}
+.history summary::-webkit-details-marker{ display:none; }
+.history summary::before{ content:"▸ "; color:var(--blue); }
+.history[open] summary::before{ content:"▾ "; }
+.history .hbody{ padding:0 12px 12px; }
+.hrow{
+  display:grid;
+  grid-template-columns:132px 86px 74px 74px 78px 1fr;
+  gap:6px;
+  padding:6px 4px;
+  border-bottom:1px dashed var(--line-soft);
+  font-size:12px; color:var(--fg-dim);
+  align-items:center;
+}
+.hrow.head{ color:#5d6879; border-bottom:1px solid var(--line); }
+.hrow .hl{ color:var(--fg); }
+.hrow .hw{ color:var(--blue); font-weight:700; }
+.hrow .ha{ color:var(--green); }
+.empty{ padding:14px 4px; color:#5d6879; font-size:12px; }
+
+/* ============================================================
+   结算弹窗
+   ============================================================ */
+.modal{
+  position:fixed; inset:0; z-index:50;
+  background:rgba(4,6,10,.72);
+  display:none; align-items:center; justify-content:center;
+  padding:20px;
+}
+.modal.show{ display:flex; animation:fade .16s ease; }
+@keyframes fade{ from{opacity:0} to{opacity:1} }
+.dialog{
+  width:min(560px,100%);
+  background:var(--bg-soft);
+  border:1px solid var(--line);
+  border-radius:14px;
+  box-shadow:0 22px 60px rgba(0,0,0,.6);
+  overflow:hidden;
+  animation:pop .18s ease;
+}
+@keyframes pop{ from{transform:translateY(10px) scale(.98); opacity:.6} to{transform:none; opacity:1} }
+.dialog .dhead{
+  padding:16px 20px; border-bottom:1px solid var(--line-soft);
+  display:flex; align-items:center; gap:10px;
+}
+.dialog .dhead h2{ margin:0; font-size:16px; }
+.dialog .dhead .sub{ font-size:12px; color:var(--fg-dim); }
+.dialog .dbody{ padding:16px 20px; }
+.dgrid{
+  display:grid; grid-template-columns:repeat(3,1fr); gap:10px;
+}
+.dcell{
+  background:var(--bg-input); border:1px solid var(--line-soft);
+  border-radius:10px; padding:10px 12px;
+}
+.dcell .k{ font-size:11px; color:var(--fg-dim); }
+.dcell .v{ font-size:20px; font-weight:700; margin-top:4px; }
+.dcell.g .v{ color:var(--green); } .dcell.r .v{ color:var(--red); }
+.dcell.b .v{ color:var(--blue); }  .dcell.a .v{ color:var(--amber); }
+.dnote{ margin:14px 0 0; font-size:12px; color:var(--fg-dim); line-height:1.7; }
+.dfoot{
+  padding:14px 20px; border-top:1px solid var(--line-soft);
+  display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;
+}
+
+/* 小提示文字 */
+.tip{ font-size:12px; color:#5d6879; line-height:1.9; }
+.tip b{ color:#8b98a8; }
+.tip code{
+  background:var(--bg-input); border:1px solid var(--line-soft);
+  border-radius:4px; padding:0 4px; color:var(--cyan); font-size:12px;
+}
+kbd{
+  background:#1b2430; border:1px solid #2b3648; border-bottom-width:2px;
+  border-radius:4px; padding:1px 6px; font-size:11px; color:var(--fg);
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ 顶部：标题 + 分类切换 ============ -->
+  <header class="topbar">
+    <div class="brand">
+      <i class="dot"></i>
+      <h1>CodeType<span>编程代码打字练习</span></h1>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-lang="all">全部混合<span class="cnt" data-cnt="all"></span></button>
+      <button class="tab" data-lang="html">HTML<span class="cnt" data-cnt="html"></span></button>
+      <button class="tab" data-lang="css">CSS<span class="cnt" data-cnt="css"></span></button>
+      <button class="tab" data-lang="js">JavaScript<span class="cnt" data-cnt="js"></span></button>
+      <button class="tab" data-lang="cn">中文混合<span class="cnt" data-cnt="cn"></span></button>
+      <button class="tab" data-lang="cli">终端命令<span class="cnt" data-cnt="cli"></span></button>
+      <button class="tab" data-lang="mix">综合混排<span class="cnt" data-cnt="mix"></span></button>
+    </nav>
+  </header>
+
+  <!-- ============ 实时数据面板 ============ -->
+  <section class="stats" id="stats">
+    <div class="stat v-blue"><span class="k">WPM 字符速度</span><span class="v" id="s-wpm">0<small>词/分</small></span></div>
+    <div class="stat"><span class="k">CPM 字符/分</span><span class="v" id="s-cpm">0</span></div>
+    <div class="stat"><span class="k">总字符</span><span class="v" id="s-total">0</span></div>
+    <div class="stat v-green"><span class="k">正确字符</span><span class="v" id="s-correct">0</span></div>
+    <div class="stat v-red"><span class="k">错误字符</span><span class="v" id="s-wrong">0</span></div>
+    <div class="stat"><span class="k">正确率</span><span class="v" id="s-acc">100<small>%</small></span></div>
+    <div class="stat v-amber"><span class="k">本次耗时</span><span class="v" id="s-time">0.0<small>s</small></span></div>
+    <div class="stat"><span class="k">进度</span><span class="v" id="s-prog">0<small>%</small></span></div>
+  </section>
+
+  <!-- ============ 工具栏 ============ -->
+  <section class="toolbar">
+    <button class="btn primary" id="btn-start">开始练习</button>
+    <button class="btn" id="btn-reset">重置</button>
+    <button class="btn" id="btn-next">下一题</button>
+    <button class="btn ghost" id="btn-skip">跳过本题</button>
+    <button class="btn" id="btn-jump" title="把光标退回到第一个打错的位置（快捷键 F2）">跳到错处</button>
+    <span class="spacer"></span>
+    <span class="strict-hint" title="大小写、英文引号、分号、空格、括号、点号全部逐字符精确比对">逐字符精确比对 <b>·</b> 空格显示为标记</span>
+    <label class="switch" title="开启后会在光标处用暗黄色标出下一个应当输入的字符">
+      <input type="checkbox" id="sw-hint" />
+      <span class="track"></span>
+      <span>提示模式</span>
+    </label>
+    <label class="switch" title="关闭后除退格键以外的所有按键都不会生效，防止误触打错">
+      <input type="checkbox" id="sw-strict" />
+      <span class="track"></span>
+      <span>严格模式</span>
+    </label>
+    <label class="switch" title="开启时：参考层的空格显示为空心方块、输入层为圆环+淡底色块，方便分辨空格与句点。关闭后只用留白，此时缩进需要自己数空格（两种模式都保证逐字符对齐）">
+      <input type="checkbox" id="sw-space" checked />
+      <span class="track"></span>
+      <span>空格标记</span>
+    </label>
+    <label class="switch" title="关闭后不再显示「输入法组字中…」「已忽略中文输入」这类提示（组字拦截本身不受影响）">
+      <input type="checkbox" id="sw-imehint" checked />
+      <span class="track"></span>
+      <span>输入法提示</span>
+    </label>
+  </section>
+
+  <!-- ============ 代码练习区 ============ -->
+  <section class="panel">
+    <div class="panel-head">
+      <span class="badge" id="badge-lang">HTML</span>
+      <span id="title-meta">片段 1 / 1 · 0 字符</span>
+      <span class="use-badge" id="use-badge" title="这段代码的常见用途"><span></span></span>
+      <span id="mis-badge">不一致 0 处</span>
+      <span class="probe">
+        <span class="plabel">期望字符</span>
+        <span class="pchar" id="probe">-</span>
+        <span class="pnote" id="probe-note"></span>
+      </span>
+    </div>
+
+    <div class="codewrap">
+      <!-- 参考代码（语法高亮层）：空格在这里显示为"空心方块" -->
+      <div class="codescroll">
+        <div id="code-lines" class="cbody code"></div>
+      </div>
+      <!-- 用户输入回显层：与上面逐字符对齐；空格在这里显示为"圆环 + 淡底色块" -->
+      <div class="codescroll">
+        <div id="input-lines" class="cbody input"></div>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <span>状态：<b id="st-state" class="on">就绪</b></span>
+      <span>本行第 <b id="st-col">0</b> 字</span>
+      <span>连击：<b id="st-combo">0</b></span>
+      <span class="ime-flag" id="st-ime"></span>
+      <span class="spacer"></span>
+      <span><kbd>Tab</kbd>/<kbd>空格</kbd> 输入空格 · <kbd>Backspace</kbd> 回退 · <kbd>F2</kbd> 跳到错处 · <kbd>Esc</kbd> 重置 · <kbd>Enter</kbd> 换行/下一题</span>
+    </div>
+
+    <!-- 标记图例：说清楚空格是怎么显示的，避免和句点混淆 -->
+    <div class="legend">
+      <span class="item">图例</span>
+      <span class="item space-only"><i class="demo gd"></i> 参考代码里的空格</span>
+      <span class="item space-only"><i class="demo sp"></i> 待输入的空格</span>
+      <span class="item"><i class="demo cor">·</i> 已打对</span>
+      <span class="item"><i class="demo wrg">·</i> 打错（显示你实际敲的字符）</span>
+      <span class="item"><i class="demo mis"></i> 未修正的位置</span>
+      <span class="item">错误处显示的是<b>你实际输入的字符</b>（红底），期望字符看上方参考代码或右上角「期望字符」。</span>
+      <span class="item space-only">英文句点 <i class="demo dot">.</i> 是字形本身的墨点，压基线；方块/圆环是空格标记，居行中——形状、位置、颜色都不同。</span>
+      <span class="item">不习惯标记？把工具栏的「空格标记」关掉即可，只留空白，缩进靠数空格。</span>
+    </div>
+  </section>
+
+  <!-- 真正接收键盘输入的隐藏 textarea（自带输入法、退格、粘贴等原生行为） -->
+  <textarea id="hidden-input" spellcheck="false" autocomplete="off" autocapitalize="off"
+    aria-label="代码输入区"
+    style="position:absolute;left:-9999px;top:0;width:200px;height:40px;opacity:0;resize:none;pointer-events:none;"></textarea>
+
+  <!-- ============ 历史记录 ============ -->
+  <details class="panel history" id="history">
+    <summary>历史练习记录（保存在浏览器 localStorage，刷新不丢失）</summary>
+    <div class="hbody">
+      <div class="hrow head">
+        <span>完成时间</span><span>分类</span><span>WPM</span><span>正确率</span><span>耗时</span><span>字符 / 错误</span>
+      </div>
+      <div id="history-rows"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+        <button class="btn ghost" id="btn-clear-history">清空历史记录</button>
+      </div>
+    </div>
+  </details>
+
+  <p class="tip">
+    用法：点「开始练习」后直接敲键盘即可（也可直接开始敲，软件会自动开始计时）。
+    输入框中正确字符显示为 <span style="color:var(--green)">绿色</span>；
+    <b>打错的字符会显示成你实际敲进去的那个字符</b>（红底 + 红圈），
+    期望字符看上方参考代码或右上角「期望字符」即可对照；游标继续前进，
+    按 <kbd>Backspace</kbd> 逐字回退，按 <kbd>F2</kbd> 或点「跳到错处」直接退回第一个打错的位置重打。
+    <br />
+    <b>判定规则</b>：全程逐字符精确比对——<b>大小写</b>（<code>const</code> ≠ <code>Const</code>）、
+    <b>英文半角引号</b>（<code>"</code> <code>'</code> 不是中文引号）、<b>半角分号/逗号/括号</b>、
+    <b>空格个数与位置</b>（缩进 2 个空格就是 2 个，不能多也不能少）、<b>英文句点与逗号</b>，全部不允许有任何差异。
+    <br />
+    <b>中文输入法</b>：组字（挑字）期间的拼音字母、数字<u>不会</u>进入代码，状态栏会出现「输入法组字中…」提示；
+    上屏时只接收英文字符与半角符号，中文会被直接忽略（不计错，也不会污染已输入内容）。
+    所以中文输入法开着也能正常练，不用担心拼音被打进代码。建议练代码时切回英文状态更贴近实战。
+  </p>
+</div>
+
+<!-- ============ 结算弹窗 ============ -->
+<div class="modal" id="modal">
+  <div class="dialog">
+    <div class="dhead">
+      <h2 id="m-title">练习完成 🎉</h2>
+      <span class="sub" id="m-sub"></span>
+    </div>
+    <div class="dbody">
+      <div class="dgrid">
+        <div class="dcell b"><div class="k">WPM（字符速度）</div><div class="v" id="m-wpm">0</div></div>
+        <div class="dcell a"><div class="k">CPM（字符/分）</div><div class="v" id="m-cpm">0</div></div>
+        <div class="dcell g"><div class="k">正确率</div><div class="v" id="m-acc">0%</div></div>
+        <div class="dcell"><div class="k">总字符数</div><div class="v" id="m-total">0</div></div>
+        <div class="dcell g"><div class="k">正确字符</div><div class="v" id="m-correct">0</div></div>
+        <div class="dcell r"><div class="k">错误字符</div><div class="v" id="m-wrong">0</div></div>
+        <div class="dcell a"><div class="k">练习耗时</div><div class="v" id="m-time">0s</div></div>
+        <div class="dcell"><div class="k">最长连击</div><div class="v" id="m-combo">0</div></div>
+        <div class="dcell"><div class="k">修正次数</div><div class="v" id="m-fix">0</div></div>
+      </div>
+      <p class="dnote" id="m-note"></p>
+    </div>
+    <div class="dfoot">
+      <button class="btn" id="m-close">关闭</button>
+      <button class="btn" id="m-retry">重练本题</button>
+      <button class="btn primary" id="m-next">下一题</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   ①  题库 BANK
+   ------------------------------------------------------------
+   · 每条记录格式：{ t: "代码文本", d: "难度说明（可选）" }
+   · 文本里可以直接写 \n 表示换行，用 \t 表示制表符（不推荐，建议用空格）。
+   · 建议每段 30~110 字符，太长不适合打字练习。
+   · 【重要】因为题库写在脚本标签里，字符串中绝对不能出现脚本结束标签的原文
+     （否则 HTML 解析器会提前结束脚本，整页失效）；请把它拆成 "<\/" + "script>"，
+     拼出来的值完全一样，但不会破坏 HTML 解析。
+   · 同理，字符串里也不要写 HTML 注释的起止符号，需要时拆成 '<' + '!-- 注释 --' + '>'。
+   · 新增分类：在 BANK 里加一个 key（如 'vue'），再到 HTML 顶部 <nav id="tabs">
+     里复制一个 <button class="tab" data-lang="vue"> 即可，其余逻辑自动适配。
+   ============================================================ */
+var BANK = {
+  html: [
+    { t: '<div class="container"></div>', u: '容器骨架' },
+    { t: '<div class="box"><p>文本内容</p></div>', u: '最常用的 div + p 嵌套' },
+    { t: '<a href="https://example.com" target="_blank">链接</a>', u: '新窗口打开链接' },
+    { t: '<img src="./logo.png" alt="Logo" width="120">', u: '图片三件套：src/alt/width' },
+    { t: '<input type="text" name="email" placeholder="请输入邮箱">', u: '文本输入框' },
+    { t: '<input type="password" required minlength="6">', u: '密码框 + 原生校验' },
+    { t: '<button class="btn btn-primary" type="submit">提交</button>', u: '按钮（双类名 + type）' },
+    { t: '<button type="button" onclick="handleClick()">点我</button>', u: '内联事件按钮' },
+    { t: '<ul class="nav">\n  <li><a href="#home">首页</a></li>\n</ul>', u: '导航列表' },
+    { t: '<ol class="steps">\n  <li>第一步</li>\n  <li>第二步</li>\n</ol>', u: '有序列表' },
+    { t: '<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width">', u: '页面必备 meta' },
+    { t: '<link rel="stylesheet" href="./css/style.css">', u: '引入外部样式' },
+    { t: '<script src="./js/app.js" defer><\/script>', u: '引入外部脚本（defer）' },
+    { t: '<form action="/login" method="post">\n  <label for="user">用户名</label>\n</form>', u: '表单 + label 关联' },
+    { t: '<input id="email" type="email" required>\n<span class="error">邮箱格式不正确</span>', u: '表单校验提示' },
+    { t: '<input type="checkbox" id="agree" checked>\n<label for="agree">同意协议</label>', u: '复选框' },
+    { t: '<select name="city">\n  <option value="bj">北京</option>\n</select>', u: '下拉选择' },
+    { t: '<textarea rows="4" cols="30" placeholder="留言..."></textarea>', u: '多行文本域' },
+    { t: '<table class="data">\n  <tr><th>姓名</th><th>年龄</th></tr>\n</table>', u: '表格表头行' },
+    { t: '<img src="avatar.png" alt="头像" class="avatar">\n<span class="name">张三</span>', u: '头像 + 用户名' },
+    { t: '<div class="hero" data-id="1001">\n  <p>欢迎来到打字练习</p>\n</div>', u: '带 data 属性的区块' },
+    { t: '<header class="site-header">\n  <nav class="main-nav"></nav>\n</header>', u: '页头 + 导航' },
+    { t: '<main class="content">\n  <h1>页面标题</h1>\n</main>', u: '语义化主内容区' },
+    { t: '<section id="about" class="card shadow">\n  <h2>关于我们</h2>\n</section>', u: '带 id 与类名的分区' },
+    { t: '<article class="post">\n  <h3>文章标题</h3>\n  <p>正文...</p>\n</article>', u: '文章卡片' },
+    { t: '<aside class="sidebar">\n  <p>侧边栏</p>\n</aside>', u: '侧边栏' },
+    { t: '<footer class="site-footer">\n  <p>&copy; 2024 CodeType</p>\n</footer>', u: '页脚 + 版权符号' },
+    { t: '<div class="modal" id="modal">\n  <div class="modal-body"></div>\n</div>', u: '弹窗结构' },
+    { t: '<nav class="breadcrumb">\n  <a href="/">首页</a> / <span>详情</span>\n</nav>', u: '面包屑导航' },
+    { t: '<span class="badge badge-new">NEW</span>', u: '状态标签' },
+    { t: '<progress value="70" max="100"></progress>', u: '原生进度条' },
+    { t: '<video src="./demo.mp4" controls muted loop></video>', u: '视频播放器' },
+    { t: '<audio src="./bgm.mp3" controls preload="none"></audio>', u: '音频播放器' },
+    { t: '<iframe src="./frame.html" width="600" height="400"></iframe>', u: '内嵌页面' },
+    { t: '<picture>\n  <source srcset="a.webp" type="image/webp">\n  <img src="a.png" alt="">\n</picture>', u: '响应式图片' },
+    { t: '<div class="grid">\n  <div class="card"></div>\n  <div class="card"></div>\n</div>', u: '网格容器 + 卡片' }
+  ],
+  css: [
+    { t: 'color: #61afef;\nbackground: #0e1116;', u: '文字色 + 背景色' },
+    { t: 'margin: 0 auto;\nmax-width: 1200px;', u: '水平居中' },
+    { t: 'font-family: Consolas, "Courier New", monospace;', u: '等宽字体栈' },
+    { t: 'display: flex;\nalign-items: center;\njustify-content: space-between;', u: 'Flex 三连（最常用）' },
+    { t: 'display: grid;\ngrid-template-columns: repeat(3, 1fr);\ngap: 16px;', u: 'Grid 三列自适应' },
+    { t: 'position: absolute;\ntop: 50%;\nleft: 50%;\ntransform: translate(-50%, -50%);', u: '绝对居中' },
+    { t: 'position: fixed;\nright: 24px;\nbottom: 24px;\nz-index: 999;', u: '固定悬浮元素' },
+    { t: 'position: sticky;\ntop: 0;\nz-index: 100;', u: '吸顶导航' },
+    { t: 'overflow: hidden;\ntext-overflow: ellipsis;\nwhite-space: nowrap;', u: '单行省略号三连' },
+    { t: 'transition: all .2s ease-in-out;', u: '过渡动画' },
+    { t: 'cursor: pointer;\nuser-select: none;', u: '可点击元素' },
+    { t: 'box-sizing: border-box;\noutline: none;', u: '表单元素重置' },
+    { t: 'padding: 12px 20px;\nborder-radius: 8px;\nborder: 1px solid #ccc;', u: '按钮/输入框外观' },
+    { t: 'box-shadow: 0 8px 24px rgba(0, 0, 0, .35);', u: '卡片阴影' },
+    { t: 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);', u: '渐变背景' },
+    { t: 'background: rgba(0, 0, 0, .5);', u: '半透明遮罩' },
+    { t: '.card:hover {\n  transform: translateY(-4px);\n}', u: '悬浮上移' },
+    { t: 'opacity: .65;\nvisibility: hidden;', u: '透明度 + 隐藏' },
+    { t: 'transform: scale(1.05) rotate(3deg);', u: '缩放 + 旋转' },
+    { t: '@keyframes spin {\n  from { transform: rotate(0deg); }\n  to { transform: rotate(360deg); }\n}', u: '旋转动画关键帧' },
+    { t: 'animation: spin 1s linear infinite;', u: '无限旋转（loading）' },
+    { t: '@media (max-width: 768px) {\n  .sidebar { display: none; }\n}', u: '移动端媒体查询' },
+    { t: '*, *::before, *::after {\n  box-sizing: border-box;\n}', u: '全局盒模型重置' },
+    { t: ':root {\n  --primary: #61afef;\n  --radius: 8px;\n}', u: 'CSS 变量声明' },
+    { t: 'color: var(--primary);\nborder-radius: var(--radius);', u: 'CSS 变量使用' },
+    { t: '.btn:not(:disabled):hover {\n  background: #243044;\n}', u: '状态选择器组合' },
+    { t: 'ul > li:first-child {\n  margin-top: 0;\n}', u: '结构伪类' },
+    { t: '.item:nth-child(2n) {\n  background: #f5f5f5;\n}', u: '斑马纹' },
+    { t: 'input:focus {\n  border-color: #61afef;\n}', u: '聚焦态' },
+    { t: '.item::after {\n  content: "";\n  display: block;\n  clear: both;\n}', u: '清除浮动 / 伪元素' },
+    { t: 'line-height: 1.6;\nletter-spacing: .5px;', u: '行高与字距' },
+    { t: 'background-image: url("./bg.png");\nbackground-size: cover;', u: '背景图铺满' },
+    { t: 'display: none;\nvisibility: visible;', u: '进出场控制' }
+  ],
+  js: [
+    { t: 'const PI = 3.14159;\nlet count = 0;\nvar name = "code";', u: '三种变量声明' },
+    { t: 'function add(a, b) {\n  return a + b;\n}', u: '函数声明' },
+    { t: 'const sum = (a, b) => a + b;', u: '箭头函数' },
+    { t: 'const greet = (name = "world") => `hi ${name}`;', u: '默认参数 + 模板串' },
+    { t: 'if (user.isLogin) {\n  render(user);\n} else {\n  redirect("/login");\n}', u: 'if / else' },
+    { t: 'const text = count > 0 ? "有" : "无";', u: '三元运算符' },
+    { t: 'if (!value || value.length === 0) return;', u: '空值早返回' },
+    { t: 'switch (status) {\n  case 200:\n    return data;\n  default:\n    return null;\n}', u: 'switch 分支' },
+    { t: 'for (let i = 0; i < 10; i++) {\n  console.log(i);\n}', u: '计数循环' },
+    { t: 'for (const item of list) {\n  console.log(item);\n}', u: 'for...of 遍历' },
+    { t: 'while (queue.length) {\n  process(queue.shift());\n}', u: 'while 消费队列' },
+    { t: 'list.forEach((item, index) => {\n  console.log(index, item);\n});', u: 'forEach 带下标' },
+    { t: 'const doubled = nums.map(n => n * 2);', u: 'map 映射' },
+    { t: 'const arr = items.filter(item => item.price > 100);', u: 'filter 过滤' },
+    { t: 'const total = nums.reduce((sum, n) => sum + n, 0);', u: 'reduce 求和' },
+    { t: 'const found = list.find(item => item.id === id);', u: 'find 查找' },
+    { t: 'const has = list.some(item => item.active);', u: 'some 存在判断' },
+    { t: 'const all = list.every(item => item.done);', u: 'every 全满足' },
+    { t: 'const uniq = [...new Set(list)].sort((a, b) => a - b);', u: '去重 + 排序' },
+    { t: 'const merged = [...arr1, ...arr2];', u: '展开合并数组' },
+    { t: 'const { name, age } = user;\nconst [first, ...rest] = list;', u: '解构赋值' },
+    { t: 'const copy = { ...user, age: 30 };', u: '展开覆盖对象' },
+    { t: 'Object.keys(obj).forEach(key => {\n  console.log(key, obj[key]);\n});', u: '遍历对象' },
+    { t: 'const entries = Object.entries(obj).filter(([k, v]) => v);', u: 'entries + 解构过滤' },
+    { t: 'data?.user?.name ?? "匿名";', u: '可选链 + 空值合并' },
+    { t: 'if (typeof value === "string") {\n  value = value.trim();\n}', u: '类型判断' },
+    { t: 'try {\n  JSON.parse(text);\n} catch (err) {\n  console.error(err.message);\n}', u: 'try / catch' },
+    { t: 'async function fetchData(url) {\n  const res = await fetch(url);\n  return res.json();\n}', u: 'async / await 请求' },
+    { t: 'const data = await res.json();', u: '解析响应 JSON' },
+    { t: 'Promise.all([a, b]).then(([r1, r2]) => {});', u: '并发请求' },
+    { t: 'document.querySelector(".btn").addEventListener("click", () => {\n  alert("clicked");\n});', u: '绑定点击事件' },
+    { t: 'const el = document.getElementById("app");', u: '获取元素' },
+    { t: 'el.classList.toggle("active");', u: '切换类名' },
+    { t: 'el.textContent = "更新后的文本";', u: '更新文本' },
+    { t: 'el.style.display = "none";', u: '改内联样式' },
+    { t: 'window.addEventListener("resize", handleResize);', u: '监听窗口尺寸' },
+    { t: 'localStorage.setItem("token", JSON.stringify(data));', u: '存本地存储' },
+    { t: 'const token = JSON.parse(localStorage.getItem("token") || "null");', u: '读本地存储' },
+    { t: 'setTimeout(() => {\n  clearInterval(timer);\n}, 1000);', u: '定时器组合' },
+    { t: 'export default class User {\n  constructor(name) {\n    this.name = name;\n  }\n}', u: '类与构造器' },
+    { t: 'export const API_URL = "https://api.example.com";', u: '导出常量' },
+    { t: 'import { ref, computed } from "vue";', u: '按需导入' },
+    { t: 'const str = `hello ${name}, you are ${age}`;', u: '模板字符串' },
+    { t: 'const isEmail = /^[\\w.]+@[\\w.]+\\.\\w+$/.test(input);', u: '正则校验（邮箱）' },
+    { t: 'console.log("[debug]", data);', u: '调试输出' },
+    { t: 'throw new Error("参数不能为空");', u: '抛错' }
+  ],
+  /* 含中文的片段：中文在等宽字体里是"双宽"字符，程序会自动切换到
+     逐字符精确布局来保证上下两层对齐，所以这里可以放心混排。
+     建议每行不超过 46 个汉字/字符，太长会自动折行。 */
+  cn: [
+    { t: '// 计算两个数的和\nfunction add(a, b) {\n  return a + b;\n}', u: '中文注释 + 函数' },
+    { t: '// 点击后弹出提示\nbtn.addEventListener("click", () => {\n  alert("你好，世界");\n});', u: '中文提示文案' },
+    { t: '// TODO: 这里需要做参数校验', u: 'TODO 注释' },
+    { t: 'const user = {\n  name: "张三",\n  age: 28\n};', u: '中文数据对象' },
+    { t: 'if (list.length === 0) {\n  console.log("暂无数据");\n}', u: '中文日志' },
+    { t: '// 数据校验：不能为空\nif (!value.trim()) {\n  return false;\n}', u: '校验注释 + 早返回' },
+    { t: 'throw new Error("用户名已存在");', u: '中文错误信息' },
+    { t: 'const tip = `还剩 ${count} 次机会`;', u: '模板串拼中文' },
+    { t: '.filter(item => item.状态 === "已完成");', u: '中文属性名' },
+    { t: '<button type="submit">提交订单</button>', u: '按钮中文文案' },
+    { t: '<label for="user">用户名</label>\n<input id="user" type="text">', u: '表单中文标签' },
+    { t: '<p class="tip">请输入 6 位以上密码</p>', u: '表单提示文字' },
+    { t: '<a href="/help" title="查看帮助">帮助中心</a>', u: '带 title 的链接' },
+    { t: '<h1>欢迎使用本系统</h1>\n<p>请先登录后再操作</p>', u: '标题 + 说明文字' },
+    { t: '<span class="tag">限时优惠</span>', u: '中文标签' },
+    { t: '<nav>\n  <a href="/">首页</a>\n  <a href="/about">关于</a>\n</nav>', u: '中文导航' },
+    { t: 'font-family: "Microsoft YaHei", sans-serif;', u: '中文优先字体栈', pureAscii: true },
+    { t: '/* 卡片阴影与圆角 */\n.card {\n  border-radius: 12px;\n}', u: '中文 CSS 注释' },
+    { t: '/* 深色模式下的文字颜色 */\nbody.dark {\n  color: #d6deeb;\n}', u: '深色模式注释' },
+    { t: '/* 移动端隐藏侧边栏 */\n@media (max-width: 768px) {\n  .sidebar { display: none; }\n}', u: '响应式中文注释' }
+  ],
+  /* 终端命令：前端日常最常用的固定搭配，练熟能明显省时间 */
+  cli: [
+    { t: 'git status', u: '查看改动状态' },
+    { t: 'git add .\ngit commit -m "feat: 新增登录页"', u: '提交改动' },
+    { t: 'git commit -m "fix: 修复按钮样式"', u: '按规范写提交信息' },
+    { t: 'git checkout -b feature/login', u: '新建并切分支' },
+    { t: 'git switch main\ngit pull origin main', u: '切回主干并拉取' },
+    { t: 'git merge feature/login', u: '合并分支' },
+    { t: 'git rebase main', u: '变基到主干' },
+    { t: 'git stash\ngit stash pop', u: '暂存与恢复' },
+    { t: 'git log --oneline -10', u: '看最近提交' },
+    { t: 'git diff HEAD~1', u: '对比上一次提交' },
+    { t: 'git reset --soft HEAD~1', u: '撤销提交但保留改动' },
+    { t: 'git remote -v\ngit push -u origin main', u: '关联远程并推送' },
+    { t: 'git clone git@github.com:user/repo.git', u: '克隆仓库（SSH）' },
+    { t: 'git cherry-pick a1b2c3d', u: '摘取某个提交' },
+    { t: 'git tag -a v1.0.0 -m "release"', u: '打标签' },
+    { t: 'npm install', u: '安装依赖' },
+    { t: 'npm install axios --save', u: '装运行时依赖' },
+    { t: 'npm install vite -D', u: '装开发依赖' },
+    { t: 'npm run dev', u: '启动开发服务' },
+    { t: 'npm run build', u: '打包生产版本' },
+    { t: 'npm run lint -- --fix', u: '自动修 lint 问题' },
+    { t: 'npm ci', u: '按 lock 文件精确安装' },
+    { t: 'npx create-vite@latest my-app', u: '脚手架建项目' },
+    { t: 'pnpm add dayjs', u: 'pnpm 安装依赖' },
+    { t: 'node -v && npm -v', u: '查看版本' },
+    { t: 'cd ./src/components', u: '切换目录' },
+    { t: 'ls -la', u: '列出全部文件' },
+    { t: 'mkdir -p src/utils', u: '递归建目录' },
+    { t: 'rm -rf node_modules', u: '删依赖重装' },
+    { t: 'cp .env.example .env', u: '复制环境变量文件' },
+    { t: 'grep -rn "TODO" src/', u: '全局搜索 TODO' },
+    { t: 'curl -X GET https://api.example.com/users', u: '命令行请求接口' }
+  ],
+  /* 混排：前端最常一起出现的几种语言交替，练"语法切换"的手感 */
+  mix: [
+    { t: '<div class="box">\n  <p>内容</p>\n</div>\n\n.box {\n  padding: 12px;\n}', u: 'HTML + CSS 混排' },
+    { t: '.btn {\n  background: #61afef;\n  color: #fff;\n}', u: '按钮样式' },
+    { t: 'const el = document.querySelector(".btn");\nel.classList.add("active");', u: 'JS 操作类名' },
+    { t: 'export default function App() {\n  return null;\n}', u: '模块默认导出' },
+    { t: 'import "./style.css";\nimport App from "./App";', u: '导入样式与组件' },
+    { t: '{ "name": "codetype", "version": "1.0.0" }', u: 'JSON 片段' },
+    { t: '{\n  "scripts": {\n    "dev": "vite",\n    "build": "vite build"\n  }\n}', u: 'package.json scripts' },
+    { t: 'interface User {\n  id: number;\n  name: string;\n}', u: 'TypeScript 接口' },
+    { t: 'const el = ref<HTMLDivElement | null>(null);', u: 'TS 泛型 + ref' },
+    { t: 'props: {\n  title: { type: String, default: "" }\n}', u: 'Vue props 定义' },
+    { t: 'const count = ref(0);\nconst double = computed(() => count.value * 2);', u: 'Vue 响应式' },
+    { t: 'watch(() => props.id, (val) => {\n  load(val);\n});', u: 'Vue 侦听器' },
+    { t: '<template>\n  <div class="app">{{ title }}</div>\n</template>', u: 'Vue 单文件模板' },
+    { t: 'useEffect(() => {\n  fetchData();\n}, []);', u: 'React 副作用' },
+    { t: 'const [count, setCount] = useState(0);', u: 'React 状态' },
+    { t: '@apply flex items-center gap-2;', u: 'Tailwind 工具类' },
+    { t: '<div class="flex items-center gap-2">', u: 'Tailwind 常用三连' },
+    { t: 'docker run -p 8080:80 nginx', u: 'Docker 起容器' },
+    { t: 'ssh user@192.168.1.10', u: 'SSH 登录' },
+    { t: 'SELECT id, name FROM users WHERE age > 18;', u: 'SQL 查询' }
+  ]
+};
+
+/* ============================================================
+   ②  通用工具
+   ============================================================ */
+var $ = function (id) { return document.getElementById(id); };
+
+/** 把代码按最大列宽硬折行：不依赖浏览器软换行，保证两层逐字符对齐 */
+function wrapCode(code, maxCols) {
+  var raw = String(code).replace(/\r\n?/g, "\n").replace(/\t/g, "  ").split("\n");
+  var lines = [];
+  for (var i = 0; i < raw.length; i++) {
+    var line = raw[i];
+    if (line.length === 0) { lines.push(""); continue; }
+    for (var p = 0; p < line.length; p += maxCols) lines.push(line.substr(p, maxCols));
+  }
+  return lines;
+}
+
+/** 把行数组拼回完整字符串（中间用 \n 连接，与实际需要输入的字符完全一致） */
+function linesToString(lines) { return lines.join("\n"); }
+
+/** 把空格显示成小圆点，方便看清缩进；其余字符原样输出（已转义） */
+function spacesToDots(escaped) { return escaped.replace(/ /g, spaceHtml("code", "")); }
+
+/** WPM = 正确字符数 / 5 / 分钟；CPM = 正确字符数 / 分钟 */
+function calcWpm(correct, seconds) {
+  var min = seconds / 60;
+  return min > 0 ? Math.max(0, Math.round((correct / 5) / min)) : 0;
+}
+function calcCpm(correct, seconds) {
+  var min = seconds / 60;
+  return min > 0 ? Math.max(0, Math.round(correct / min)) : 0;
+}
+/** 把特殊空白字符转成人能看懂的名字（保留，供外部调用/扩展使用） */
+function visibleChar(ch) {
+  return explainChar(ch) || ch;
+}
+/** 简易 HTML 转义 */
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * 把"一个字符"转成可见、可区分的展示形式（用于"期望字符"徽标）。
+ * 这是代码打字的关键：空格、换行、制表符这些看不见的字符必须明确标出来，
+ * 否则用户根本不知道下一个要打的是空格还是标点。
+ */
+function displayChar(ch) {
+  if (ch === " ")  return "␣";             // U+2423 空白符号
+  if (ch === "\n") return "↵";
+  if (ch === "\t") return "⇥";
+  return escapeHtml(ch);                    // 其余字符原样显示（含引号、分号、括号）
+}
+
+/**
+ * 把"一个字符"翻译成人话，显示在徽标旁边。
+ * 重点照顾最容易搞错的那批符号：空格 / 点号 / 引号 / 分号 / 括号。
+ */
+function explainChar(ch) {
+  if (ch === " ")  return "空格";
+  if (ch === "\n") return "换行";
+  if (ch === "\t") return "Tab";
+  if (ch === ".")  return "英文句点";
+  if (ch === ",")  return "英文逗号";
+  if (ch === ";")  return "英文分号";
+  if (ch === ":")  return "英文冒号";
+  if (ch === '"')  return "双引号";
+  if (ch === "'")  return "单引号";
+  if (ch === "`")  return "反引号（模板字符串）";
+  if (ch === "(")  return "左圆括号";
+  if (ch === ")")  return "右圆括号";
+  if (ch === "[")  return "左方括号";
+  if (ch === "]")  return "右方括号";
+  if (ch === "{")  return "左花括号";
+  if (ch === "}")  return "右花括号";
+  if (ch === "<")  return "小于号";
+  if (ch === ">")  return "大于号";
+  if (ch === "=")  return "等号";
+  if (ch === "-")  return "连字符";
+  if (ch === "_")  return "下划线";
+  if (ch === "!")  return "感叹号";
+  if (ch === "&")  return "和号 &";
+  if (ch === "/")  return "斜杠";
+  if (ch === "\\") return "反斜杠";
+  if (ch === "*")  return "星号";
+  if (ch === "#")  return "井号";
+  if (ch === "$")  return "美元符";
+  if (ch === "%")  return "百分号";
+  if (ch === "+")  return "加号";
+  if (ch === "|")  return "竖线";
+  if (ch === "?")  return "问号";
+  if (ch === "@")  return "at 符";
+  if (ch >= "A" && ch <= "Z") return "大写 " + ch;
+  if (ch >= "a" && ch <= "z") return "小写 " + ch;
+  return "";
+}
+
+/** 统计"已输入但和参考不一致"的位置数量（退格修正后会减少） */
+function countMismatches() {
+  var n = 0, upto = Math.min(state.pos, state.target.length);
+  for (var i = 0; i < upto; i++) if (state.status[i] === 2) n++;
+  return n;
+}
+
+/** 第一个不一致位置的下标，没有则返回 -1 */
+function firstMismatch() {
+  var upto = Math.min(state.pos, state.target.length);
+  for (var i = 0; i < upto; i++) if (state.status[i] === 2) return i;
+  return -1;
+}
+
+/* ============================================================
+   ③  语法高亮：tokenize(code, lang) -> [{t: 文本, k: 类别}]
+   ------------------------------------------------------------
+   纯前端轻量高亮，支持 注释 / 字符串 / 数字 / 关键字 / 函数名 /
+   标签 / 属性，够用即可。
+   ============================================================ */
+var JS_KEYWORDS = ("const let var function return if else for while do switch case default break continue " +
+  "new class extends super this typeof instanceof in of try catch finally throw async await import from " +
+  "export delete void yield static get set null undefined true false NaN Infinity").split(" ");
+var KEYWORD_RE = new RegExp("^(?:" + JS_KEYWORDS.join("|") + ")$");
+
+/* --- CSS 高亮 --- */
+function tokenizeCss(code) {
+  var out = [], re = /\/\*[\s\S]*?\*\/|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|#[0-9a-fA-F]{3,8}\b|\d+(?:\.\d+)?(?:px|em|rem|%|s|ms|vh|vw|deg|fr)?|--[\w-]+|@[\w-]+|[\w-]+(?=\s*:)|[\w-]+/g;
+  var last = 0, m;
+  while ((m = re.exec(code)) !== null) {
+    if (m.index > last) out.push({ t: code.slice(last, m.index), k: "pun" });
+    var s = m[0], k = "pun";
+    if (s.slice(0, 2) === "/*") k = "com";
+    else if (s.charAt(0) === '"' || s.charAt(0) === "'") k = "str";
+    else if (s.charAt(0) === "#" || /^[\d.]/.test(s)) k = "num";
+    else if (s.charAt(0) === "@") k = "kw";
+    else if (code.charAt(m.index + s.length) === ":") k = "att";
+    else k = "tag";
+    out.push({ t: s, k: k });
+    last = m.index + s.length;
+  }
+  if (last < code.length) out.push({ t: code.slice(last), k: "pun" });
+  return out;
+}
+
+/** 把空格渲染成"可视标记"或"纯留白"。
+ *  两种情况下的步进完全一致（标记是 1ch 宽的 inline-block），所以逐字符对齐不受影响。
+ *  · 开启（默认）：参考层空心方块 □ / 输入层圆环 + 淡底色块 —— 便于分辨空格与句点
+ *  · 关闭：参考层用字体的空格字形，输入层用真实空格 + 极淡底色（仍能看出"这里有个空格"）
+ */
+function spaceHtml(layer, stateCls) {
+  if (state.spaceMark) {
+    return layer === "code" ? '<span class="gd"></span>' : '<span class="sp"></span>';
+  }
+  // 留白模式：输入层给一个很淡的底色块，避免"完全看不到空格打没打"；参考层用真实空格
+  if (layer === "input" && stateCls !== "ok" && stateCls !== "bad") return '<span class="space-off"></span>';
+  return " ";
+}
+
+/* --- HTML 高亮（状态机实现，保证不丢字符） --- */
+/* 注意：下面这两个常量故意用字符串拼接而不是直接写字面量，
+   否则 HTML 注释的起止符号会出现在脚本里，触发浏览器的 script escaped 解析状态。 */
+var HTML_COMMENT_OPEN = "<" + "!--";
+var HTML_COMMENT_CLOSE = "--" + ">";
+
+function tokenizeHtml(code) {
+  var out = [], i = 0, n = code.length;
+  function push(t, k) { if (t) out.push({ t: t, k: k }); }
+  while (i < n) {
+    // 1) 注释 (HTML_COMMENT_OPEN ... HTML_COMMENT_CLOSE)
+    if (code.substr(i, 4) === HTML_COMMENT_OPEN) {
+      var ce = code.indexOf(HTML_COMMENT_CLOSE, i + 4);
+      ce = ce < 0 ? n : ce + 3;
+      push(code.slice(i, ce), "com"); i = ce; continue;
+    }
+    // 2) 标签内部：<tag attr="v" ...>
+    if (code.charAt(i) === "<" && /[A-Za-z\/!]/.test(code.charAt(i + 1) || "")) {
+      var m = /^<\/?[A-Za-z][\w:-]*/.exec(code.slice(i));
+      if (m) { push(m[0], "tag"); i += m[0].length; }
+      else { push(code.charAt(i), "pun"); i++; }
+      while (i < n && code.charAt(i) !== ">") {
+        var c = code.charAt(i);
+        if (/\s/.test(c)) { push(c, "pun"); i++; continue; }
+        if (c === '"' || c === "'") {                       // 属性值 / 属性名
+          var end = code.indexOf(c, i + 1);
+          end = end < 0 ? n : end + 1;
+          push(code.slice(i, end), "str"); i = end; continue;
+        }
+        var ma = /^[A-Za-z_:][\w:.-]*/.exec(code.slice(i));
+        if (ma) { push(ma[0], "att"); i += ma[0].length; continue; }
+        push(c, "pun"); i++;
+      }
+      if (i < n) { push(">", "pun"); i++; }
+      continue;
+    }
+    // 3) 普通文本 / 实体 / 孤立符号
+    var mt = /^[^<]+/.exec(code.slice(i));
+    if (mt) { push(mt[0], "pun"); i += mt[0].length; continue; }
+    push(code.charAt(i), "pun"); i++;
+  }
+  return out;
+}
+
+/* --- JavaScript 高亮 --- */
+function tokenizeJs(code) {
+  var out = [], i = 0, n = code.length;
+  function push(t, k) { if (t) out.push({ t: t, k: k }); }
+  while (i < n) {
+    var c = code.charAt(i), c2 = code.substr(i, 2);
+    // 注释
+    if (c2 === "//") { var e = code.indexOf("\n", i); if (e < 0) e = n; push(code.slice(i, e), "com"); i = e; continue; }
+    if (c2 === "/*") { var e2 = code.indexOf("*/", i + 2); e2 = e2 < 0 ? n : e2 + 2; push(code.slice(i, e2), "com"); i = e2; continue; }
+    // 字符串 / 模板字符串
+    if (c === '"' || c === "'" || c === "`") {
+      var j = i + 1;
+      while (j < n) { if (code.charAt(j) === "\\") { j += 2; continue; } if (code.charAt(j) === c) { j++; break; } j++; }
+      push(code.slice(i, j), "str"); i = j; continue;
+    }
+    // 数字
+    var mn = /^(?:0[xX][\da-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(code.slice(i));
+    if (mn) { push(mn[0], "num"); i += mn[0].length; continue; }
+    // 标识符 / 关键字 / 函数名
+    if (/[A-Za-z_$]/.test(c)) {
+      var mi = /^[A-Za-z_$][\w$]*/.exec(code.slice(i));
+      var word = mi[0], k2 = "pun";
+      if (KEYWORD_RE.test(word)) k2 = "kw";
+      else if (/^\s*\(/.test(code.slice(i + word.length))) k2 = "fn";
+      push(word, k2); i += word.length; continue;
+    }
+    // 运算符
+    var mo = /^(?:=>|===|!==|\*\*|&&|\|\||\?\?|\+\+|--|\+=|-=|\*=|%=|==|!=|<=|>=|\?\.|\.\.\.)/.exec(code.slice(i));
+    if (mo) { push(mo[0], "op"); i += mo[0].length; continue; }
+    if (/[+\-*/%=<>!&|^~?:]/.test(c)) { push(c, "op"); i++; continue; }
+    // 空白 / 标点
+    var mw = /^\s+/.exec(code.slice(i));
+    if (mw) { push(mw[0], "pun"); i += mw[0].length; continue; }
+    push(c, "pun"); i++;
+  }
+  return out;
+}
+
+function tokenize(code, lang) {
+  try {
+    if (lang === "html") return tokenizeHtml(code);
+    if (lang === "css") return tokenizeCss(code);
+    return tokenizeJs(code);
+  } catch (e) {
+    return [{ t: code, k: "pun" }];   // 高亮失败也要保证代码能显示
+  }
+}
+
+/* ============================================================
+   ④  应用状态
+   ============================================================ */
+var LS_KEY = "codetype.history.v1";      // 历史记录存储键
+var MAX_EXTRA = 6;                       // 输入区额外列数：允许打出多余字符
+var MAX_COLS = 92;                       // 代码区最大列宽（超出即折行；窗口变窄时会自动变小）
+var PAD_LINE = "0";                      // 量字符宽度用的探针文本
+
+var state = {
+  lang: "all",          // 当前分类：all / html / css / js
+  pool: [],             // 当前分类下已打乱的题目索引
+  poolPtr: 0,           // 抽题指针
+  snippetIndex: -1,     // 当前片段在 BANK 中的下标（用于防止连续重复）
+  lines: [],            // 折行后的参考代码行
+  target: "",           // 完整目标字符串（含 \n）
+  lineStart: [],        // 每行起始字符的全局下标
+  pos: 0,               // 已输入字符数 = 光标位置
+  status: [],           // 每个位置的判定：'' | 1 正确 | 2 错误（长度 == target.length）
+  inputChars: [],       // 每个位置实际敲进去的字符（退格会清空；用于判断是否出现宽字符）
+  lineGeom: null,       // 含中文题目时，每行的逐字符几何（两层共用）；纯 ASCII 时为 null
+  hasWide: false,       // 当前题目目标里是否含宽字符（中文/全角）
+  lineCls: [],          // 逐字符布局模式下，每行的字符类名（高亮色）
+  imeHint: true,        // 是否显示输入法相关提示（组字中 / 已忽略某次输入）
+  hint: false,          // 提示模式
+  strict: false,        // 严格模式
+  spaceMark: true,      // 空格是否用可视标记（方块/圆环）；关闭则只靠留白，逐字符对齐不受影响
+  composing: false,     // 输入法是否正在组字（组字期间的按键与文本一律不进入代码）
+  running: false,       // 是否已经开始计时
+  finished: false,      // 本题是否已完成
+  t0: 0,                // 开始时间
+  elapsed: 0,           // 累计耗时（毫秒）
+  maxCombo: 0,          // 最长连击
+  fixes: 0,             // 退格修正次数
+  saved: false,         // 本次成绩是否已写入历史
+  raf: 0                // 计时器句柄
+};
+var currentSnippet = null;   // 当前片段对象 { t, lang, index }
+
+/* ============================================================
+   ⑤  题库 / 抽题
+   ============================================================ */
+/** 收集某个分类下的题目：返回 [{t, lang, index}] */
+function collectPool(lang) {
+  var list = [];
+  Object.keys(BANK).forEach(function (key) {
+    if (lang !== "all" && key !== lang) return;
+    BANK[key].forEach(function (item, i) {
+      list.push({ t: item.t, d: item.d || "", lang: key, index: i });
+    });
+  });
+  return list;
+}
+
+/** Fisher–Yates 洗牌 */
+function shuffle(arr) {
+  for (var i = arr.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+  }
+  return arr;
+}
+
+/** 取下一题：先走洗好的池子，池子用尽后重新洗牌（避免连续两题相同） */
+function nextPoolItem() {
+  if (!state.pool.length || state.poolPtr >= state.pool.length) {
+    state.pool = shuffle(collectPool(state.lang));
+    state.poolPtr = 0;
+  }
+  var guard = 0, item = state.pool[state.poolPtr++];
+  while (item && currentSnippet &&
+         item.t === currentSnippet.t && item.lang === currentSnippet.lang &&
+         state.pool.length > 1 && guard++ < 12) {
+    item = state.pool[state.poolPtr++];
+  }
+  return item;
+}
+
+/* ============================================================
+   ⑥  渲染引擎
+   ============================================================ */
+/**
+ * 量取布局基准（启动和窗口尺寸变化时各执行一次）：
+ *   __charW —— 等宽字体单字符宽度（用探针量，不能用空格或 visibility:hidden，会得到 0）
+ *   __codeW —— 每行文字可用宽度（面板宽 - 左右 padding）
+ *   __cols  —— 当前窗口宽度下合适的最大列数（自适应，避免窗口窄时字距被压成 0 而溢出）
+ *   __ls    —— 需要额外加的字间距（把最长行拉伸到面板整宽，保证每行字符位置确定）
+ * 打字过程中不需要再读 DOM，避免每敲一键触发大量重排。
+ */
+function syncMetrics() {
+  // 用 "0" 量出单字符宽度（等宽字体下 1ch = 1 个 ASCII 字符的宽度）：
+  //   · 探针必须带 .cbody 类，才会继承代码字体与字号；
+  //   · 必须用 inline-block 让宽度收缩到内容（绝对定位的块级元素会撑满设定宽度，量出来是错的）。
+  var probe = document.createElement("div");
+  probe.className = "cbody";
+  probe.style.cssText = "position:absolute;left:0;top:0;display:inline-block;width:auto;" +
+    "padding:0;opacity:0;pointer-events:none;z-index:-1";
+  probe.textContent = PAD_LINE;
+  document.body.appendChild(probe);
+  var w = probe.getBoundingClientRect().width;
+  var fs = parseFloat(getComputedStyle(probe).fontSize) || 15;
+  var cjkProbe = document.createElement("span");
+  cjkProbe.className = "ctext";
+  cjkProbe.textContent = "中";
+  probe.appendChild(cjkProbe);
+  var wCjk = cjkProbe.getBoundingClientRect().width;
+  document.body.removeChild(probe);
+  window.__charW = w > 0 ? w : 0.55 * fs;
+  // 宽字符（中文/全角）在等宽字体里通常正好占两个字符的位置，量一下更保险
+  window.__wideW = wCjk > 0 ? wCjk : window.__charW * 2;
+
+  var host = $("code-lines");
+  var avail = host.clientWidth - 24;                        // 减去左右 padding
+  if (!(avail > 200)) avail = 800;
+  window.__codeW = avail;
+
+  // 自适应列数：列数 × 字宽不能超过可用宽度，否则每行会短一截
+  var fit = Math.floor(avail / window.__charW) - MAX_EXTRA;
+  window.__cols = Math.max(40, Math.min(MAX_COLS, fit));
+  window.__ls = calcLetterSpacing(avail);
+  window.__metrics = { charW: window.__charW, avail: avail, cols: window.__cols, fontSize: fs, ls: window.__ls };
+}
+
+/** 根据可用宽度算出需要的字间距（把最长行拉伸到面板整宽） */
+function calcLetterSpacing(avail) {
+  var charW = window.__charW || 8.4;
+  var n = (window.__cols || MAX_COLS) + MAX_EXTRA;          // 最长行的列数
+  var ls = (avail - charW * n) / (n - 1);                   // 平均分配到字符间隙
+  if (!isFinite(ls) || ls < 0) ls = 0;
+  return Math.min(ls, 1.8);                                 // 限制拉伸幅度，避免字距崩坏
+}
+
+/**
+ * 把一行内容写入容器并套用统一字间距（纯 ASCII 题目的路径）。
+ * 关键点：字间距是"全局统一"的，所以参考层与输入层的字符位置必然一一对应。
+ */
+function renderLine(container, html, lineIndex, withLineNo) {
+  var ln = withLineNo ? '<span class="ln">' + (lineIndex + 1) + "</span>" : "";
+  container.innerHTML = ln + '<span class="ctext" style="letter-spacing:' +
+    (window.__ls || 0).toFixed(3) + 'px">' + (html || "&nbsp;") + "</span>";
+}
+
+/* ------------------------------------------------------------
+   字宽测量与逐字符精确布局
+   ------------------------------------------------------------
+   纯 ASCII 的代码片段是严格等宽的，用「统一 letter-spacing」就能对齐。
+   但中文（CJK）是"双宽"字符，在多数等宽字体里它并不正好等于
+   两个 ASCII 字符宽，也不受 letter-spacing 均匀影响 —— 宽窄混排时
+   两层会累积错位。所以含中文的题目改走这条路径：
+
+     · 事先用探针把每个出现过的字符的**真实推进宽度**量出来（带缓存）
+     · 每行按真实宽度累加，剩余空间再均匀分配成字距
+     · 每个字符渲染成一个固定 width 的 span，两层共用同一份几何数据
+
+   这样无论宽窄如何混排，两层每个字符的位置都严格一致。
+   ------------------------------------------------------------ */
+var CJK_RE = /[\u1100-\u115F\u2329\u232A\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/;
+
+/** 测量单个字符在当前代码字体下的推进宽度（结果缓存在 window.__advCache） */
+function measureCharAdv(ch) {
+  var cache = window.__advCache || (window.__advCache = {});
+  if (cache[ch] !== undefined) return cache[ch];
+  var probe = document.createElement("div");
+  probe.className = "cbody";
+  probe.style.cssText = "position:absolute;left:0;top:0;display:inline-block;width:auto;" +
+    "padding:0;opacity:0;pointer-events:none;z-index:-1";
+  var span = document.createElement("span");
+  span.className = "ctext";
+  span.textContent = ch;
+  probe.appendChild(span);
+  document.body.appendChild(probe);
+  var w = span.getBoundingClientRect().width;
+  document.body.removeChild(probe);
+  if (!(w > 0)) w = isWideChar(ch) ? (window.__wideW || window.__charW * 2) : (window.__charW || 8.4);
+  cache[ch] = w;
+  return w;
+}
+
+/** 为一批字符（整题去重）预先测量，避免渲染时反复读布局 */
+function measureSnippetChars() {
+  window.__advCache = {};
+  var seen = {}, str = state.target || "";
+  for (var i = 0; i < str.length; i++) {
+    var ch = str.charAt(i);
+    if (ch === "\n" || seen[ch]) continue;
+    seen[ch] = 1;
+    measureCharAdv(ch);
+  }
+  measureCharAdv(" ");              // 空格也要有（标记盒宽度用它）
+}
+
+/**
+ * 计算一行的几何：每个字符的左偏移、宽度、以及统一字距。
+ * @returns {{offs:number[], widths:number[], gap:number, total:number}}
+ */
+function buildLineGeom(line) {
+  var n = line.length, widths = new Array(n), offs = new Array(n), natural = 0;
+  for (var i = 0; i < n; i++) {
+    var w = measureCharAdv(line.charAt(i));
+    widths[i] = w; natural += w;
+  }
+  var avail = window.__codeW || 800;
+  // 与 ASCII 路径保持一致：每行都拉伸到面板整宽（换行符不占宽度，单独补一个半角）
+  var gap = n > 0 ? (avail - natural) / n : 0;
+  if (!isFinite(gap) || gap < 0) gap = 0;
+  if (gap > 1.8) gap = 1.8;                    // 与 letter-spacing 上限保持一致
+  var acc = 0;
+  for (var k = 0; k < n; k++) { offs[k] = acc; acc += widths[k] + gap; }
+  return { offs: offs, widths: widths, gap: gap, natural: natural };
+}
+
+/** 逐字符渲染一行（两层共用几何数据，只是字符类名与内容不同） */
+function renderPositionedRow(container, lineIndex, withLineNo, classes) {
+  var line = state.lines[lineIndex];
+  var geom = state.lineGeom && state.lineGeom[lineIndex] ? state.lineGeom[lineIndex] : buildLineGeom(line);
+  renderRowWithGeom(container, line, geom, lineIndex, withLineNo, classes);
+}
+
+/** 用给定几何把一行字符摆出来（width 写死 + margin-right 补字距）
+ *  chars 指定每个位置**显示什么字符**（默认按参考代码，输入层要传"实际键入的字符"）。
+ *  两层都用同一个几何 + 同一种渲染方式，是"逐字符严格对齐"的基础。 */
+function renderRowWithGeom(container, line, geom, lineIndex, withLineNo, classes, chars) {
+  var ln = withLineNo ? '<span class="ln">' + (lineIndex + 1) + "</span>" : "";
+  var html = "";
+  for (var i = 0; i < line.length; i++) {
+    var ch = chars ? chars[i] : line.charAt(i);
+    if (ch === undefined || ch === null) ch = line.charAt(i);
+    var cls = classes[i] || "pending";
+    var inner;
+    if (ch === " ") inner = '<span class="sp"></span>';
+    else if (cls === "bad" && !ch) inner = "?";      // 极端情况：错误位置没有记录到字符
+    else inner = escapeHtml(ch);
+    html += '<span class="' + cls + '" style="width:' + geom.widths[i].toFixed(2) +
+      'px;margin-right:' + geom.gap.toFixed(3) + 'px">' + inner + "</span>";
+  }
+  container.innerHTML = ln + '<span class="ctext posmode">' + (html || '<span class="caret"></span>') + "</span>";
+}
+
+/** 是否需要用逐字符精确布局：题目里有宽字符，或已输入的内容里出现过宽字符 */
+function needWideLayout() {
+  if (CJK_RE.test(state.target || "")) return true;
+  var upto = Math.min(state.pos, state.inputChars.length);
+  for (var i = 0; i < upto; i++) if (isWideChar(state.inputChars[i])) return true;
+  return false;
+}
+
+/**
+ * 参考代码那一层：静态渲染一次即可（仅切题时重绘）
+ */
+function renderCodeLayer() {
+  var host = $("code-lines");
+  host.innerHTML = "";
+  // 含中文的题目：预先量好每个字符宽度，并算好每行几何（输入层要复用）
+  var wide = needWideLayout();
+  state.hasWide = wide;
+  measureSnippetChars();                     // 目标里的字符宽度先量好（两种模式都要，标记盒用得上）
+  state.lineGeom = null;
+  if (wide) {
+    state.lineGeom = [];
+    for (var g = 0; g < state.lines.length; g++) state.lineGeom.push(buildLineGeom(state.lines[g]));
+  }
+  for (var i = 0; i < state.lines.length; i++) {
+    var el = document.createElement("div");
+    el.className = "cbody code";
+    host.appendChild(el);
+    if (wide) {
+      // 逐字符布局：先把这一行的字符类名（高亮色）算出来
+      var classes = [];
+      var tokens = tokenize(state.lines[i], currentSnippet.lang);
+      for (var t = 0; t < tokens.length; t++) {
+        var tkCls = "tk-" + tokens[t].k;
+        for (var q = 0; q < tokens[t].t.length; q++) classes.push(tkCls);
+      }
+      state.lineCls[i] = classes;
+      renderRowWithGeom(el, state.lines[i], state.lineGeom[i], i, true, classes);
+    } else {
+      // 等宽路径：整行交给语法高亮 + 统一字距
+      var tks = tokenize(state.lines[i], currentSnippet.lang);
+      var lineHtml = tks.map(function (tk) {
+        var text = escapeHtml(tk.t);
+        if (tk.k === "pun") text = spacesToDots(text);   // 空格换成可视标记
+        return '<span class="tk-' + tk.k + '">' + text + "</span>";
+      }).join("");
+      renderLine(el, lineHtml, i, true);
+    }
+  }
+}
+
+/** 计算"输入区"里第 i 行应该显示成什么样 */
+function renderInputLayer() {
+  var host = $("input-lines");
+  // 只在行数变化时重建行容器，否则复用（减少 DOM 抖动）
+  if (host.children.length !== state.lines.length) {
+    host.innerHTML = "";
+    for (var i = 0; i < state.lines.length; i++) {
+      var el = document.createElement("div");
+      el.className = "cbody input";
+      host.appendChild(el);
+    }
+  }
+  var showHint = state.hint && !state.finished;
+  var ghostPos = showHint ? state.pos + 1 : -1;
+
+  for (var li = 0; li < state.lines.length; li++) {
+    var lineText = state.lines[li];
+    var start = state.lineStart[li];
+    var html = "";
+    var rowHasMis = false;
+    var classes = [];
+    // 每个位置**显示什么**：已输入的位置显示实际键入的字符（打错时尤其重要），
+    // 其余位置显示参考代码里的字符。定位模式与等宽模式共用这份数据。
+    var shown = new Array(lineText.length);
+
+    for (var c = 0; c < lineText.length; c++) {
+      var gp = start + c;
+      var ch = lineText.charAt(c);
+      var cls;
+      if (gp < state.pos) {
+        cls = state.status[gp] === 2 ? "bad" : "ok";       // 已输入：正确绿 / 错误红
+      } else if (gp === ghostPos) {
+        cls = "ghost";                                     // 提示模式：暗黄色预显下一个字符
+      } else {
+        cls = "pending";                                   // 还没输入到的字符（极淡）
+      }
+
+      /* 已输入的位置显示"你实际敲进去的字符"（打错时不是把期望字符标红）。
+         这样一眼就能看出自己打错了什么；期望字符在参考层与右上角「期望字符」可对照，
+         `跳到错处` 或 Backspace 可以退回去改。 */
+      var display;
+      if (gp < state.pos) {
+        var typed = state.inputChars[gp];
+        display = (typed === undefined || typed === null || typed === "") ? ch : typed;
+      } else {
+        display = ch;
+      }
+      shown[c] = display;
+
+      var chHtml;
+      if (display === " ") {
+        // 空格按「空格标记」开关渲染：开启=圆环+淡底色块，关闭=纯留白（步进一致）
+        chHtml = spaceHtml("input", cls);
+      } else {
+        chHtml = escapeHtml(display);
+      }
+
+      if (cls === "bad" && !rowHasMis) {
+        rowHasMis = true;
+        // 未修正的不一致位置：套一个红圈，一眼看到错在哪
+        html += '<span class="markMis"></span>';
+      }
+      if (gp === state.pos) html += '<span class="caret"></span>';
+      html += '<span class="' + cls + '">' + chHtml + "</span>";
+      classes.push(cls);
+    }
+    // 光标在行尾（本行输入完但还有下一行）
+    if (state.pos >= start + lineText.length && (li === state.lines.length - 1 || state.pos < state.lineStart[li + 1])) {
+      html += '<span class="caret"></span>';
+    }
+    if (html === "") html = '<span class="caret"></span>';
+
+    var rowEl = host.children[li];
+    // 走哪种布局（两层必须一致）：
+    //   · 题目本身含中文 → 该行用预先算好的几何
+    //   · 题目是纯 ASCII → 这一行仍可能被打进中文（宽字符），此时现算该行几何，
+    //     否则宽字符会把后面的字符挤偏（实测偏 61px）
+    var geomRow;
+    if (state.hasWide) geomRow = (state.lineGeom && state.lineGeom[li]) ? state.lineGeom[li] : buildLineGeom(lineText);
+    else geomRow = null;
+
+    if (geomRow) {
+      // 逐字符布局：两层位置严格一致（含宽字符混排）；错处显示实际键入的字符
+      renderRowWithGeom(rowEl, lineText, geomRow, li, false, classes, shown);
+      if (state.pos >= start && state.pos <= start + lineText.length) {
+        var col = state.pos - start;
+        var caretLeft = col < geomRow.offs.length ? geomRow.offs[col] : geomRow.natural;
+        // 红圈套在**第一个错处的字符**上（宽度用该字符槽位宽，与标记盒对齐）
+        var markHTML = "";
+        if (rowHasMis) {
+          var misCol = -1;
+          for (var mi = 0; mi < classes.length; mi++) { if (classes[mi] === "bad") { misCol = mi; break; } }
+          if (misCol >= 0) {
+            markHTML = '<span class="markMis abs" style="left:' + geomRow.offs[misCol].toFixed(2) +
+              'px;width:' + geomRow.widths[misCol].toFixed(2) + 'px"></span>';
+          }
+        }
+        var holder = document.createElement("span");
+        holder.style.cssText = "position:absolute;left:0;top:0";
+        holder.innerHTML = markHTML + '<span class="caret abs" style="left:' + caretLeft.toFixed(2) + 'px"></span>';
+        rowEl.querySelector(".ctext").appendChild(holder);
+      }
+    } else {
+      renderLine(rowEl, html, li, false);
+    }
+    // 整行有未修正的错误时给一条左侧红线（css .hasMis）
+    if (rowHasMis) rowEl.classList.add("hasMis");
+    else rowEl.classList.remove("hasMis");
+  }
+}
+
+/* ============================================================
+   ⑦  统计面板
+   ============================================================ */
+function computeStats() {
+  var correct = 0, wrong = 0;
+  var typed = Math.min(state.pos, state.target.length);
+  for (var i = 0; i < typed; i++) {
+    if (state.status[i] === 2) wrong++; else correct++;
+  }
+  var total = state.pos;                                  // 总字符数 = 已敲击位置
+  var acc = total > 0 ? (correct / Math.max(correct + wrong, 1)) * 100 : 100;
+  var sec = state.elapsed / 1000;
+  return {
+    correct: correct,
+    wrong: wrong,
+    total: total,
+    targetLen: state.target.length,
+    seconds: sec,
+    acc: acc,
+    wpm: calcWpm(correct, sec),
+    cpm: calcCpm(correct, sec),
+    progress: state.target.length ? Math.min(100, (state.pos / state.target.length) * 100) : 0
+  };
+}
+
+function updateStats() {
+  var s = computeStats();
+  $("s-wpm").innerHTML = s.wpm + "<small>词/分</small>";
+  $("s-cpm").textContent = s.cpm;
+  $("s-total").textContent = s.total;
+  $("s-correct").textContent = s.correct;
+  $("s-wrong").textContent = s.wrong;
+  $("s-acc").innerHTML = s.acc.toFixed(1) + "<small>%</small>";
+  $("s-time").innerHTML = s.seconds.toFixed(1) + "<small>s</small>";
+  $("s-prog").innerHTML = Math.round(s.progress) + "<small>%</small>";
+
+  // 当前行 / 列
+  var line = 0;
+  for (var i = 0; i < state.lineStart.length; i++) {
+    if (state.pos >= state.lineStart[i]) line = i;
+  }
+  var col = state.pos - (state.lineStart[line] || 0);
+  $("st-col").textContent = col;
+  $("st-combo").textContent = state.combo || 0;
+
+  // 期望字符徽标：用可见符号 + 文字说明，明确告诉用户下一个要打的是什么字符。
+  // 如果有"已打错但还没改"的位置，这里把**第一个错处**的实际输入也点出来，
+  // 一眼就能对照"我打的是 X，期望的是 Y"（错误字符在输入层显示的就是你实际敲的字符）。
+  var nextCh = state.pos < state.target.length ? state.target.charAt(state.pos) : null;
+  var pchar = $("probe"), pnote = $("probe-note");
+  if (nextCh === null) {
+    pchar.innerHTML = "✓";
+    pnote.textContent = "已输完";
+  } else {
+    pchar.innerHTML = displayChar(nextCh);
+    var note = explainChar(nextCh);
+    var firstBad = firstMismatch();
+    if (firstBad >= 0) {
+      var actual = state.inputChars[firstBad];
+      if (actual) {
+        note = "第 " + (firstBad + 1) + " 位实际输入「" +
+          (actual === " " ? "空格" : actual) + "」应为「" +
+          (state.target.charAt(firstBad) === " " ? "空格" : state.target.charAt(firstBad)) + "」 · " + note;
+      }
+    }
+    // 顶到 80 字左右就不再拉长，避免把面板标题栏挤爆
+    if (note.length > 80) note = note.slice(0, 78) + "…";
+    pnote.textContent = note;
+  }
+
+  // 不一致位置计数：有未修正的错误就亮出来，提示用「跳到错处」回去改
+  var mis = countMismatches();
+  var badge = $("mis-badge");
+  if (mis > 0) {
+    badge.textContent = "不一致 " + mis + " 处";
+    badge.classList.add("show");
+  } else {
+    badge.classList.remove("show");
+  }
+  // 「跳到错处」按钮：没有错误时改成「跳到末尾」，仍然可用
+  var jb = $("btn-jump");
+  if (jb) {
+    if (mis > 0) {
+      jb.textContent = "跳到错处";
+      jb.disabled = false;
+      jb.classList.add("primary");
+    } else {
+      jb.textContent = "跳到末尾";
+      jb.classList.remove("primary");
+      jb.disabled = state.pos === 0;
+    }
+  }
+
+  // 只读调试信息：给回归校验脚本核对"错处显示的是实际键入的字符"等行为，不影响任何逻辑
+  var fm = firstMismatch();
+  window.__codetype = {
+    probeNote: pnote.textContent,
+    probeChar: pchar.textContent,
+    firstMismatch: fm,
+    mismatches: mis,
+    inputChars: state.inputChars,
+    typedAtMismatch: fm < 0 ? null : state.inputChars[fm],
+    expectedAtMismatch: fm < 0 ? null : state.target.charAt(fm),
+    hasWide: state.hasWide
+  };
+}
+
+/**
+ * 键盘输入用的过滤（宽松）：
+ *   打字时任何可打印字符都该算一次"击键"——对不上就判错并让光标前进，
+ *   和打错一个英文字母完全一样。所以这里不按目标过滤，只做最基本的清洗
+ *   （退掉控制字符、把回车规范化成换行）。
+ *   注意：含中文的题目会走"逐字符精确布局"，布局路径由目标决定、与输入无关，
+ *   因此即使往纯 ASCII 题目里打中文，也不会破坏两层的对齐。
+ */
+function filterTyped(str) {
+  if (!str) return "";
+  var sb = "";
+  for (var i = 0; i < str.length; i++) {
+    var ch = str.charAt(i), code = str.charCodeAt(i);
+    if (code === 10 || code === 13) { sb += "\n"; continue; }
+    if (code >= 32) sb += ch;                 // 可打印字符（含中文、全角）都收
+  }
+  return sb;
+}
+
+/**
+ * 粘贴用的过滤（严格，按目标判定）：
+ *   粘贴是最容易"一次灌进来一大段"的入口，所以只保留：
+ *   换行、可打印 ASCII、以及**当前题目目标里出现过的宽字符**；
+ *   其余（目标里不需要的中文、全角字符）丢弃 —— 避免粘贴把整段中文塞进代码。
+ */
+function filterPasted(str) {
+  if (!str) return "";
+  var need = state.target || "";
+  var sb = "";
+  for (var i = 0; i < str.length; i++) {
+    var ch = str.charAt(i), code = str.charCodeAt(i);
+    if (code === 10 || code === 13) { sb += "\n"; continue; }
+    if (code >= 32 && code <= 126) { sb += ch; continue; }
+    if (need && need.indexOf(ch) >= 0) { sb += ch; }
+  }
+  return sb;
+}
+
+/**
+ * 把文本交给打字状态机。
+ * @param {string} str   文本
+ * @param {boolean} pasted 是否为粘贴（粘贴走严格过滤）
+ * @returns {boolean} 是否真的产生了击键（false = 全被丢弃，调用方可提示）
+ */
+function typeInput(str, pasted) {
+  var t = pasted ? filterPasted(str) : filterTyped(str);
+  if (!t) return false;
+  typeChars(t);
+  return true;
+}
+
+/** 是否是"宽字符"（中日韩、全角符号）——用于判断题库里是否含中文 */
+function isWideChar(ch) {
+  if (!ch) return false;
+  var c = ch.charCodeAt(0);
+  return (c >= 0x1100 && (
+    c <= 0x115F ||
+    c === 0x2329 || c === 0x232A ||
+    (c >= 0x2E80 && c <= 0xA4CF && c !== 0x303F) ||
+    (c >= 0xAC00 && c <= 0xD7A3) ||
+    (c >= 0xF900 && c <= 0xFAFF) ||
+    (c >= 0xFE30 && c <= 0xFE6F) ||
+    (c >= 0xFF00 && c <= 0xFF60) ||
+    (c >= 0xFFE0 && c <= 0xFFE6)
+  ));
+}
+
+/* ------------------------------------------------------------
+   输入法安全网：看门狗 + 复位
+   ------------------------------------------------------------
+   目的：任何情况下都不允许 state.composing 永久卡在 true
+   （那会让所有按键都被丢掉，表现就是"卡死"）。
+   ------------------------------------------------------------ */
+var ime = { lastActivity: 0, startedAt: 0, events: 0, timer: 0 };
+var IME_STUCK_MS = 20000;          // 20 秒没有任何组字动静 → 认定输入法已放弃组字
+
+function startImeWatchdog() {
+  stopImeWatchdog();
+  ime.timer = setTimeout(function () {
+    if (state.composing && Date.now() - ime.lastActivity > IME_STUCK_MS) {
+      releaseImeStuck("看门狗：组字超时，已自动恢复");
+    }
+  }, 5000);
+}
+function stopImeWatchdog() {
+  if (ime.timer) { clearTimeout(ime.timer); ime.timer = 0; }
+}
+/** 强制退出组字态并把输入框清干净（失焦 / 页面隐藏 / 超时 / 出错时调用） */
+function releaseImeStuck(why) {
+  var was = state.composing;
+  state.composing = false;
+  stopImeWatchdog();
+  var ta = $("hidden-input");
+  if (ta && ta.value) ta.value = "";     // 清掉可能残留的拼音
+  // 只有"确实卡在组字态"才提示；正常点击按钮导致的失焦等不该弹提示
+  if (was) flashImeHint(why || "已退出输入法组字状态");
+  else if (!ime.flashUntil || Date.now() >= ime.flashUntil) hideImeIndicator();
+}
+/** 页面重新获得焦点时，顺手确认一下组字态是否已经过期 */
+function checkImeStale() {
+  if (state.composing && Date.now() - ime.lastActivity > 3000) {
+    releaseImeStuck("焦点变化，已退出组字状态");
+  }
+}
+
+/** 输入法组字提示（状态栏）：组字中显示蓝色，结束后恢复 */
+function updateImeIndicator() {
+  if (!state.imeHint) { hideImeIndicator(); return; }        // 用户关掉了提示
+  if (ime.flashUntil && Date.now() < ime.flashUntil) return;   // 正在显示提示语，别覆盖
+  var el = $("st-ime");
+  if (!el) return;
+  if (state.composing) {
+    el.textContent = "输入法组字中…";
+    el.classList.add("on-ime");
+  } else {
+    el.textContent = "";
+    el.classList.remove("on-ime");
+  }
+}
+function hideImeIndicator() {
+  var el = $("st-ime");
+  if (!el) return;
+  el.textContent = "";
+  el.classList.remove("on-ime");
+}
+/** 短暂显示一条输入法相关提示（中文被忽略 / 自动恢复），让用户知道"程序有反应" */
+function flashImeHint(msg) {
+  if (!state.imeHint) return;                                // 用户关掉了提示
+  var el = $("st-ime");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add("on-ime");
+  ime.flashUntil = Date.now() + 1600;
+  clearTimeout(ime.flashTimer);
+  ime.flashTimer = setTimeout(function () {
+    ime.flashUntil = 0;
+    updateImeIndicator();
+  }, 1600);
+}
+
+/* 计时循环（约 8 帧刷新一次文字，够平滑又不浪费性能） */
+function tick() {
+  if (!state.running || state.finished) return;
+  state.elapsed = Date.now() - state.t0;
+  updateStats();
+  state.raf = requestAnimationFrame(tick);
+}
+
+function startTimer() {
+  if (state.running || state.finished) return;
+  state.running = true;
+  state.t0 = Date.now() - state.elapsed;
+  state.raf = requestAnimationFrame(tick);
+  $("st-state").textContent = "进行中…";
+  $("st-state").className = "off";
+  $("btn-start").disabled = true;
+}
+
+function stopTimer() {
+  state.running = false;
+  if (state.raf) cancelAnimationFrame(state.raf);
+  if (state.t0) state.elapsed = Math.min(state.elapsed, Date.now() - state.t0);
+}
+
+/* ============================================================
+   ⑧  打字状态机
+   ============================================================ */
+/**
+ * 输入一个字符
+ * @param {string} ch 单个字符或整段文本（粘贴时）
+ */
+function typeChars(str) {
+  if (state.finished || !state.target) return;
+  if (!state.running) startTimer();
+
+  for (var k = 0; k < str.length; k++) {
+    var ch = str.charAt(k);
+    if (state.pos >= state.target.length + MAX_EXTRA) break;   // 超出上限就不再接收
+
+    var expect = state.target.charAt(state.pos);
+    var isRight = ch === expect;
+
+    // 严格模式：打错直接忽略（不写入、不前进）
+    if (state.strict && !isRight && state.pos < state.target.length) continue;
+
+    state.status[state.pos] = isRight ? 1 : 2;
+    state.inputChars[state.pos] = ch;              // 记录实际键入的字符
+    state.pos++;
+
+    // 连击统计
+    if (isRight) {
+      state.combo = (state.combo || 0) + 1;
+      if (state.combo > state.maxCombo) state.maxCombo = state.combo;
+    } else {
+      state.combo = 0;
+    }
+  }
+
+  // 布局模式可能刚刚变化（例如纯 ASCII 题目里打进了中文）→ 两层都要重画，保证一致
+  refreshLayers();
+  updateStats();
+  scrollCaretIntoView();
+
+  if (state.pos >= state.target.length) finishPractice();
+}
+
+/**
+ * 重画两层。
+ * 正常情况下只重画输入层（参考层是静态的）；
+ * 一旦"是否需要逐字符布局"发生变化（例如往纯英文题目里打进中文），
+ * 参考层也必须重画，否则两层会走不同的布局路径而错位。
+ */
+function refreshLayers() {
+  if (needWideLayout() !== state.hasWide) {
+    renderCodeLayer();
+  }
+  renderInputLayer();
+}
+
+/** 跳到第一个不一致的位置，把光标退回去重打（这是修错最快的路径） */
+function jumpToMismatch() {
+  if (state.finished || !state.target) return;
+  var idx = firstMismatch();
+  if (idx < 0) {                       // 没有错误：退回末尾继续打
+    idx = Math.min(state.pos, state.target.length);
+  }
+  var old = state.pos;
+  // 清空 idx 之后的判定与实际字符，等价于连续退格
+  for (var i = idx; i < old; i++) { state.status[i] = 0; state.inputChars[i] = ""; }
+  state.pos = idx;
+  state.combo = 0;
+  if (old > idx) state.fixes += old - idx;
+  refreshLayers();
+  updateStats();
+  scrollCaretIntoView();
+}
+
+/** 退格：回退一格，并把该位置的判定清空（修正次数 +1） */
+function backspace() {
+  if (state.finished || state.pos <= 0) return;
+  state.pos--;
+  state.status[state.pos] = 0;
+  state.inputChars[state.pos] = "";       // 退格同时清掉记录的实际字符
+  state.combo = 0;
+  state.fixes++;
+  if (!state.running) startTimer();   // 回退也算在计时内，避免"退格不计时"刷分
+  refreshLayers();
+  updateStats();
+  scrollCaretIntoView();
+}
+
+/** 让光标所在行滚动到可视区域中间 */
+function scrollCaretIntoView() {
+  var line = 0;
+  for (var i = 0; i < state.lineStart.length; i++) {
+    if (state.pos >= state.lineStart[i]) line = i;
+  }
+  var lineH = 28;  // 与 CSS --code-line 保持一致
+  var box = $("input-lines").parentNode;      // 输入区的滚动容器
+  var viewH = box.clientHeight;
+  var want = (line + 1) * lineH - viewH / 2 - lineH / 2;
+  want = Math.max(0, Math.min(want, box.scrollHeight - viewH));
+  box.scrollTop = want;
+  // 参考代码同步滚动
+  $("code-lines").parentNode.scrollTop = box.scrollTop;
+}
+
+/* ============================================================
+   ⑨  练习流程：装载题目 / 开始 / 重置 / 下一题 / 跳过 / 结算
+   ============================================================ */
+function loadSnippet(snippet) {
+  currentSnippet = snippet;
+  // 先校准布局基准（面板宽度可能因为滚动条出现/窗口尺寸变化而不同），
+  // 再按当前列数折行，保证每一行都不会超出面板宽度。
+  syncMetrics();
+  state.lines = wrapCode(snippet.t, window.__cols || MAX_COLS);
+  state.target = linesToString(state.lines);
+  state.lineStart = [];
+  var acc = 0;
+  for (var i = 0; i < state.lines.length; i++) {
+    state.lineStart.push(acc);
+    acc += state.lines[i].length + 1;         // +1 为行尾的 \n
+  }
+  state.pos = 0;
+  state.status = new Array(state.target.length).fill(0);
+  state.inputChars = new Array(state.target.length).fill("");
+  state.lineGeom = null;                    // 逐字符几何在渲染参考层时按需重建
+  state.lineCls = [];
+  state.elapsed = 0;
+  state.running = false;
+  state.finished = false;
+  state.t0 = 0;
+  state.maxCombo = 0;
+  state.fixes = 0;
+  state.combo = 0;
+  state.saved = false;
+  if (state.raf) cancelAnimationFrame(state.raf);
+
+  $("badge-lang").textContent = snippet.lang.toUpperCase();
+  $("title-meta").textContent = "片段 " + (snippet.index + 1) + " / " + BANK[snippet.lang].length +
+    " · " + state.target.length + " 字符 · " + state.lines.length + " 行";
+  // 用途标签：题库里用 u: "..." 写明的用途（说明这段代码常见在哪里用）。
+  // 传入的 snippet 对象可能没带 u，所以这里回题库取一次，保证显示稳定。
+  var useBadge = $("use-badge");
+  var useText = snippet.u || "";
+  if (!useText && BANK[snippet.lang] && BANK[snippet.lang][snippet.index]) {
+    useText = BANK[snippet.lang][snippet.index].u || "";
+  }
+  if (useText) {
+    useBadge.firstChild.textContent = useText;
+    useBadge.classList.add("show");
+  } else {
+    useBadge.firstChild.textContent = "";
+    useBadge.classList.remove("show");
+  }
+  $("st-state").textContent = "就绪";
+  $("st-state").className = "on";
+  $("btn-start").disabled = false;
+  $("hidden-input").value = "";
+  state.composing = false;          // 切题时连带清掉输入法组字状态与看门狗
+  stopImeWatchdog();
+  hideImeIndicator();
+
+  renderCodeLayer();
+  renderInputLayer();
+  updateStats();
+  $("input-lines").parentNode.scrollTop = 0;
+  $("code-lines").parentNode.scrollTop = 0;
+}
+
+/** 开始/继续练习：焦点交给隐藏输入框 */
+function startPractice() {
+  if (state.finished) return;
+  if (!state.running) startTimer();
+  var ta = $("hidden-input");
+  ta.focus({ preventScroll: true });
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  $("st-state").textContent = "进行中…";
+  $("st-state").className = "off";
+}
+
+/** 重置当前题目（清空输入，重新计时） */
+function resetPractice() {
+  if (!currentSnippet) return;
+  var keepLang = currentSnippet.lang, keepIdx = currentSnippet.index;
+  loadSnippet({ t: BANK[keepLang][keepIdx].t, d: BANK[keepLang][keepIdx].d || "", lang: keepLang, index: keepIdx });
+  $("st-state").textContent = "已重置";
+  $("st-state").className = "on";
+  $("hidden-input").focus({ preventScroll: true });
+}
+
+/** 下一题（跳过 / 完成后的统一下一题入口） */
+function goNext() {
+  var item = nextPoolItem();
+  if (!item) return;
+  loadSnippet(item);
+  startPractice();
+}
+
+/** 完成本题：冻结计时、写历史、弹结算 */
+function finishPractice() {
+  if (state.finished) return;
+  state.finished = true;
+  state.elapsed = Math.min(state.elapsed, Date.now() - state.t0);
+  stopTimer();
+  updateStats();
+  $("st-state").textContent = "已完成 ✓";
+  $("st-state").className = "on";
+  $("btn-start").disabled = true;
+
+  // 完成瞬间就把成绩计入历史，避免用户直接关页面丢失
+  saveHistory();
+  showResult();
+}
+
+/* ============================================================
+   ⑩  历史记录（localStorage）
+   ============================================================ */
+function readHistory() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]") || []; }
+  catch (e) { return []; }
+}
+function writeHistory(list) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(list.slice(0, 50))); }
+  catch (e) { /* 隐私模式下可能失败，忽略 */ }
+}
+function saveHistory() {
+  if (state.saved || !currentSnippet) return;
+  state.saved = true;
+  var s = computeStats();
+  var rec = {
+    time: new Date().toLocaleString("zh-CN", { hour12: false }),
+    lang: currentSnippet.lang,
+    wpm: s.wpm,
+    cpm: s.cpm,
+    acc: Number(s.acc.toFixed(1)),
+    seconds: Number(s.seconds.toFixed(1)),
+    total: s.total,
+    correct: s.correct,
+    wrong: s.wrong,
+    combo: state.maxCombo,
+    len: s.targetLen
+  };
+  var list = readHistory();
+  list.unshift(rec);
+  writeHistory(list);
+  renderHistory();
+}
+function renderHistory() {
+  var list = readHistory();
+  var host = $("history-rows");
+  if (!list.length) { host.innerHTML = '<div class="empty">暂无记录，完成一次练习后会自动保存在这里。</div>'; return; }
+  host.innerHTML = list.map(function (r) {
+    return '<div class="hrow">' +
+      '<span class="hl">' + r.time + "</span>" +
+      "<span>" + String(r.lang).toUpperCase() + "</span>" +
+      '<span class="hw">' + r.wpm + "</span>" +
+      '<span class="ha">' + r.acc + "%</span>" +
+      "<span>" + r.seconds + "s</span>" +
+      "<span>" + r.total + " 字符 / " + r.wrong + " 错 · " + (r.len || "-") + " 目标</span>" +
+      "</div>";
+  }).join("");
+}
+
+/* ============================================================
+   ⑪  结算弹窗
+   ============================================================ */
+function showResult() {
+  var s = computeStats();
+  $("m-wpm").textContent = s.wpm;
+  $("m-cpm").textContent = s.cpm;
+  $("m-acc").textContent = s.acc.toFixed(1) + "%";
+  $("m-total").textContent = s.total;
+  $("m-correct").textContent = s.correct;
+  $("m-wrong").textContent = s.wrong;
+  $("m-time").textContent = s.seconds.toFixed(1) + "s";
+  $("m-combo").textContent = state.maxCombo;
+  $("m-fix").textContent = state.fixes;
+  $("m-sub").textContent = "[" + currentSnippet.lang.toUpperCase() + "] " + state.target.length + " 字符";
+  $("m-note").textContent = buildComment(s);
+  $("modal").classList.add("show");
+}
+/** 生成一句评价，纯属鼓励用 */
+function buildComment(s) {
+  var tips = [];
+  if (s.acc >= 99) tips.push("几乎零失误，手的记忆已经形成了。");
+  else if (s.acc >= 95) tips.push("准确率很不错，保持这个节奏。");
+  else if (s.acc >= 85) tips.push("准确率尚可，建议放慢一点换更快的速度。");
+  else tips.push("错得有点多：先把准确率练到 95% 以上，速度会自然跟上。");
+
+  if (s.wpm >= 60) tips.push("WPM 已经超过 60，属于熟练水平。");
+  else if (s.wpm >= 40) tips.push("WPM 40+，继续练习很快能突破 60。");
+  else tips.push("当前 WPM 偏低，多练重复片段（如 function / for）效果最好。");
+  if (state.fixes > s.total * 0.15 && s.total > 20) tips.push("退格次数偏多，试着一次敲对。");
+  tips.push("提示：把括号、引号、分号这类符号和打字节奏一起记，实战更省时间。");
+  return tips.join(" ");
+}
+function closeModal() { $("modal").classList.remove("show"); }
+
+/* ============================================================
+   ⑫  初始化 & 事件绑定
+   ============================================================ */
+function initTabs() {
+  // 显示每个分类的题量
+  var counts = { all: 0 };
+  Object.keys(BANK).forEach(function (k) {
+    counts[k] = BANK[k].length;
+    counts.all += BANK[k].length;
+  });
+  document.querySelectorAll("[data-cnt]").forEach(function (el) {
+    el.textContent = counts[el.getAttribute("data-cnt")] || 0;
+  });
+  document.querySelectorAll(".tab").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var lang = btn.getAttribute("data-lang");
+      if (lang === state.lang) return;
+      state.lang = lang;
+      document.querySelectorAll(".tab").forEach(function (b) { b.classList.toggle("active", b === btn); });
+      state.pool = []; state.poolPtr = 0;
+      goNext();
+    });
+  });
+}
+
+function bindEvents() {
+  var ta = $("hidden-input");
+
+  /* ------------------------------------------------------------
+     中文输入法（IME / 组字）处理
+     ------------------------------------------------------------
+     背景：用拼音输入法时，敲 j-i-n 会先进入"组字/候选"状态。
+     这些字母同样会触发 keydown / input，若不拦截就会被打进代码。
+
+     关键教训（踩过两次）：
+       ① 组字期间【绝不能主动清空或改写输入框】。输入法用这个输入框
+          当组字缓冲区，中途把它清掉会让候选窗与实际内容对不上，
+          输入法可能卡住不再响应（切换输入法时尤其容易触发）。
+          正确做法：编辑期间什么都不做，只在 compositionend 取最终结果。
+       ② 组字状态必须能"自己恢复"。若某个浏览器/输入法不发
+          compositionend（比如切窗口、切输入法、失焦），state.composing
+          会一直挂着 true，之后所有按键都被丢掉 —— 看起来就是"卡死"。
+          所以这里加了看门狗：20 秒没有任何组字更新就自动解除；
+          失焦 / 页面隐藏 / 重新获得焦点时也一律复位。
+
+     最终规则：
+       compositionend 上屏 → ASCII 正常交给状态机；中文、全角丢弃，
+                              并在状态栏明确提示"中文已忽略"（不再静默无反应）
+     ------------------------------------------------------------ */
+  ta.addEventListener("compositionstart", function () {
+    state.composing = true;
+    ime.startedAt = Date.now();
+    ime.lastActivity = Date.now();
+    ime.events++;
+    startImeWatchdog();
+    updateImeIndicator();                 // 注意：不碰 ta.value
+  });
+  ta.addEventListener("compositionupdate", function () {
+    ime.lastActivity = Date.now();        // 候选变化也算"还活着"
+  });
+  ta.addEventListener("compositionend", function (e) {
+    state.composing = false;
+    stopImeWatchdog();
+    // 上屏结果：优先用事件数据，退而取输入框内容
+    var text = (e && typeof e.data === "string") ? e.data : (ta.value || "");
+    if (ta.value) ta.value = "";          // 只在组字结束后清理残留
+    // 上屏结果当作一次正常击键送进状态机：对得上就判对，对不上就判错并前进
+    // （和打错一个英文字母完全一样）。只有目标里用不到的字符才会被过滤掉。
+    var typed = typeInput(text, false);
+    if (!typed) {
+      flashImeHint(text ? ("本题不需要中文输入：已忽略 " + String(text).slice(0, 4)) : "已忽略非英文字符");
+    } else {
+      hideImeIndicator();
+    }
+  });
+
+  // --- 键盘输入 ---
+  ta.addEventListener("input", function (e) {
+    // 正在组字：原样保留输入法写进来的内容，绝不改写（否则可能把输入法搞卡）
+    if (state.composing || (e && e.isComposing)) { ime.lastActivity = Date.now(); return; }
+    var v = ta.value;
+    ta.value = "";                        // 非组字时才清空，把增量交给状态机（逐字符判定）
+    if (!v) return;
+    typeInput(v.replace(/[\r\n]/g, ""), false);
+  });
+  // keydown 同样让路：组字期间的字母/数字/回车/退格都属于输入法
+  ta.addEventListener("keydown", function (e) {
+    if (state.composing || e.isComposing || e.keyCode === 229) return;   // 229 = IME 处理中
+    if (e.key === "Backspace") { e.preventDefault(); backspace(); return; }
+    if (e.key === "Tab") {                     // Tab 用空格替代，避免焦点跳走
+      e.preventDefault();
+      if (e.shiftKey) backspace(); else typeChars(" ");
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      // 如果目标里本来就是换行，Enter 就当作输入换行
+      if (state.pos < state.target.length && state.target.charAt(state.pos) === "\n") typeChars("\n");
+      else if (state.finished) goNext();
+      return;
+    }
+    if (e.key === "F2") { e.preventDefault(); jumpToMismatch(); return; }
+    if (e.key === "Escape") { e.preventDefault(); resetPractice(); return; }
+  });
+  // 粘贴：拆成单个字符逐个判定，防止"粘贴刷分"（粘贴走严格过滤，目标里不需要的宽字符会被丢掉）
+  ta.addEventListener("paste", function (e) {
+    e.preventDefault();
+    var text = (e.clipboardData || window.clipboardData).getData("text") || "";
+    if (!typeInput(text.replace(/[\r\n]/g, "\n"), true)) {
+      flashImeHint("粘贴内容里没有本题需要的字符");
+    }
+  });
+  // 点哪里都能输入
+  document.addEventListener("mousedown", function (e) {
+    if (e.target.closest(".modal") || e.target.closest("button") || e.target.closest("summary")) return;
+    if (e.target.closest(".app") || e.target.id === "hidden-input") {
+      ta.focus({ preventScroll: true });
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    }
+  });
+
+  /* --- 输入法安全网：失焦 / 页面隐藏 / 重新聚焦时复位组字状态 ---
+     切输入法（如按 Ctrl+Space 或点任务栏）时，某些输入法不会补发
+     compositionend，组字标记就会一直挂着，之后所有按键都被丢掉。
+     这几个事件就是兜底。 */
+  ta.addEventListener("blur", function () { releaseImeStuck("输入框失焦，已退出组字状态"); });
+  window.addEventListener("blur", function () { releaseImeStuck("窗口失焦，已退出组字状态"); });
+  window.addEventListener("focus", checkImeStale);
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) releaseImeStuck("页面切到后台，已退出组字状态");
+    else checkImeStale();
+  });
+  // 兜底：任何未捕获异常都不会让输入彻底失灵
+  window.addEventListener("error", function () {
+    try { flashImeHint("出现脚本错误，已重置输入状态"); } catch (e) {}
+    try { releaseImeStuck("脚本出错，已重置输入状态"); } catch (e) {}
+  });
+
+  // --- 按钮 ---
+  $("btn-start").addEventListener("click", startPractice);
+  $("btn-reset").addEventListener("click", resetPractice);
+  $("btn-next").addEventListener("click", goNext);
+  $("btn-skip").addEventListener("click", function () {
+    // 跳过：不计入历史，直接换题
+    goNext();
+  });
+  $("btn-jump").addEventListener("click", jumpToMismatch);
+  $("btn-clear-history").addEventListener("click", function () {
+    if (confirm("确定清空所有历史练习记录吗？此操作不可撤销。")) {
+      writeHistory([]); renderHistory();
+    }
+  });
+
+  // --- 开关 ---
+  $("sw-hint").addEventListener("change", function (e) {
+    state.hint = e.target.checked;
+    renderInputLayer();
+  });
+  $("sw-space").addEventListener("change", function (e) {
+    state.spaceMark = e.target.checked;
+    applySpaceMarkClass();
+    renderCodeLayer();      // 参考层也要重画（方块 ↔ 留白）
+    renderInputLayer();
+  });
+  $("sw-imehint").addEventListener("change", function (e) {
+    state.imeHint = e.target.checked;
+    if (!state.imeHint) hideImeIndicator();
+    else updateImeIndicator();
+  });
+  $("sw-strict").addEventListener("change", function (e) {
+    state.strict = e.target.checked;
+    $("st-state").textContent = state.strict ? "严格模式：错误按键将被忽略" : (state.finished ? "已完成 ✓" : (state.running ? "进行中…" : "就绪"));
+  });
+
+  // --- 弹窗按钮 ---
+  $("m-close").addEventListener("click", closeModal);
+  $("m-next").addEventListener("click", function () { closeModal(); goNext(); });
+  $("m-retry").addEventListener("click", function () { closeModal(); resetPractice(); startPractice(); });
+  $("modal").addEventListener("click", function (e) { if (e.target === $("modal")) closeModal(); });
+
+  // --- 窗口尺寸变化：重算字间距基准并重绘两层，保证对齐 ---
+  var rt = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(rt);
+    rt = setTimeout(function () {
+      if (!currentSnippet) return;
+      syncMetrics();
+      renderCodeLayer();
+      renderInputLayer();
+    }, 120);
+  });
+
+  // --- 记住用户的开关偏好 ---
+  try {
+    state.hint = localStorage.getItem("codetype.hint") === "1";
+    state.strict = localStorage.getItem("codetype.strict") === "1";
+    var sm = localStorage.getItem("codetype.spaceMark");
+    state.spaceMark = (sm === null) ? true : (sm === "1");   // 默认开启空格标记
+    var ih = localStorage.getItem("codetype.imeHint");
+    state.imeHint = (ih === null) ? true : (ih === "1");     // 默认开启输入法提示
+    $("sw-hint").checked = state.hint;
+    $("sw-strict").checked = state.strict;
+    $("sw-space").checked = state.spaceMark;
+    $("sw-imehint").checked = state.imeHint;
+  } catch (e) { /* ignore */ }
+  applySpaceMarkClass();
+  $("sw-hint").addEventListener("change", function (e) {
+    try { localStorage.setItem("codetype.hint", e.target.checked ? "1" : "0"); } catch (err) {}
+  });
+  $("sw-strict").addEventListener("change", function (e) {
+    try { localStorage.setItem("codetype.strict", e.target.checked ? "1" : "0"); } catch (err) {}
+  });
+  $("sw-space").addEventListener("change", function (e) {
+    try { localStorage.setItem("codetype.spaceMark", e.target.checked ? "1" : "0"); } catch (err) {}
+  });
+  $("sw-imehint").addEventListener("change", function (e) {
+    try { localStorage.setItem("codetype.imeHint", e.target.checked ? "1" : "0"); } catch (err) {}
+  });
+}
+
+/** 把「空格标记」状态同步到 body class（关掉时用 CSS 隐藏方块/圆环） */
+function applySpaceMarkClass() {
+  if (state.spaceMark) document.body.classList.remove("no-space-mark");
+  else document.body.classList.add("no-space-mark");
+}
+
+function boot() {
+  syncMetrics();
+  initTabs();
+  bindEvents();
+  renderHistory();
+  goNext();
+  // 只读调试钩子：给回归校验脚本读内部状态用，不影响任何逻辑
+  window.__codetypeIme = {
+    stuckMs: IME_STUCK_MS,
+    isComposing: function () { return !!state.composing; },
+    lastActivity: function () { return ime.lastActivity; },
+    watchdogRunning: function () { return !!ime.timer; }
+  };
+  // 首次不自动开始计时，等用户敲第一个键
+  state.running = false;
+  $("st-state").textContent = "就绪";
+  $("st-state").className = "on";
+  $("btn-start").disabled = false;
+  $("hidden-input").focus({ preventScroll: true });
+}
+document.addEventListener("DOMContentLoaded", boot);
+</script>
+</body>
+</html>
